@@ -11,7 +11,7 @@ from database.connector_factory import create_study_connector
 logger = logging.getLogger(__name__)
 
 
-class StudyAnalyticsService:
+class AnalyticsService:
     """
     Simplified analytics service for UX study
 
@@ -19,10 +19,13 @@ class StudyAnalyticsService:
     that participants will implement during the study.
     """
 
-    def __init__(self):
+    def __init__(self, db_connector=None):
         """Initialize the study analytics service"""
-        self.connector = None
-        self._initialize_connector()
+        if db_connector:
+            self.connector = db_connector
+        else:
+            self.connector = None
+            self._initialize_connector()
 
     def _initialize_connector(self):
         """Initialize the database connector for the study"""
