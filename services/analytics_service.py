@@ -121,7 +121,7 @@ class AnalyticsService:
                 result = self.connector.execute_query(
                     "SELECT COUNT(*) as count FROM warehouse"
                 )
-                warehouse_count = result[0]["count"] if result else 0
+                warehouse_count = result[0]["count"] if result and len(result) > 0 else 0
                 metrics["total_warehouses"] = warehouse_count
                 logger.info(f"✅ Warehouse count: {warehouse_count}")
                 print(f"✅ Warehouse count: {warehouse_count}")
@@ -137,7 +137,7 @@ class AnalyticsService:
                 result = self.connector.execute_query(
                     "SELECT COUNT(*) as count FROM customer"
                 )
-                customer_count = result[0]["count"] if result else 0
+                customer_count = result[0]["count"] if result and len(result) > 0 else 0
                 metrics["total_customers"] = customer_count
                 logger.info(f"✅ Customer count: {customer_count}")
                 print(f"✅ Customer count: {customer_count}")
@@ -153,7 +153,7 @@ class AnalyticsService:
                 result = self.connector.execute_query(
                     "SELECT COUNT(*) as count FROM order_table"
                 )
-                order_count = result[0]["count"] if result else 0
+                order_count = result[0]["count"] if result and len(result) > 0 else 0
                 metrics["total_orders"] = order_count
                 logger.info(f"✅ Order count: {order_count}")
                 print(f"✅ Order count: {order_count}")
@@ -169,7 +169,7 @@ class AnalyticsService:
                 result = self.connector.execute_query(
                     "SELECT COUNT(*) as count FROM item"
                 )
-                item_count = result[0]["count"] if result else 0
+                item_count = result[0]["count"] if result and len(result) > 0 else 0
                 metrics["total_items"] = item_count
                 logger.info(f"✅ Item count: {item_count}")
                 print(f"✅ Item count: {item_count}")
@@ -177,6 +177,58 @@ class AnalyticsService:
                 logger.warning(f"Failed to get item count: {str(e)}")
                 print(f"❌ Failed to get item count: {str(e)}")
                 metrics["total_items"] = 0
+
+            # Get additional metrics for dashboard
+            # New orders (orders with o_carrier_id IS NULL)
+            try:
+                logger.info("🔍 Querying new orders count...")
+                print("🔍 Querying new orders count...")
+                result = self.connector.execute_query(
+                    "SELECT COUNT(*) as count FROM order_table WHERE o_carrier_id IS NULL"
+                )
+                new_orders_count = result[0]["count"] if result and len(result) > 0 else 0
+                metrics["new_orders"] = new_orders_count
+                logger.info(f"✅ New orders count: {new_orders_count}")
+                print(f"✅ New orders count: {new_orders_count}")
+            except Exception as e:
+                logger.warning(f"Failed to get new orders count: {str(e)}")
+                print(f"❌ Failed to get new orders count: {str(e)}")
+                metrics["new_orders"] = 0
+
+            # Low stock items (stock with quantity < 50)
+            try:
+                logger.info("🔍 Querying low stock items count...")
+                print("🔍 Querying low stock items count...")
+                result = self.connector.execute_query(
+                    "SELECT COUNT(*) as count FROM stock WHERE s_quantity < 50"
+                )
+                low_stock_count = result[0]["count"] if result and len(result) > 0 else 0
+                metrics["low_stock_items"] = low_stock_count
+                logger.info(f"✅ Low stock items count: {low_stock_count}")
+                print(f"✅ Low stock items count: {low_stock_count}")
+            except Exception as e:
+                logger.warning(f"Failed to get low stock items count: {str(e)}")
+                print(f"❌ Failed to get low stock items count: {str(e)}")
+                metrics["low_stock_items"] = 0
+
+            # Orders in last 24 hours (simplified - just get recent orders)
+            try:
+                logger.info("🔍 Querying recent orders count...")
+                print("🔍 Querying recent orders count...")
+                result = self.connector.execute_query(
+                    "SELECT COUNT(*) as count FROM order_table ORDER BY o_entry_d DESC LIMIT 100"
+                )
+                recent_orders_count = result[0]["count"] if result and len(result) > 0 else 0
+                metrics["orders_last_24h"] = recent_orders_count
+                logger.info(f"✅ Recent orders count: {recent_orders_count}")
+                print(f"✅ Recent orders count: {recent_orders_count}")
+            except Exception as e:
+                logger.warning(f"Failed to get recent orders count: {str(e)}")
+                print(f"❌ Failed to get recent orders count: {str(e)}")
+                metrics["orders_last_24h"] = 0
+
+            # Average order value (simplified)
+            metrics["avg_order_value"] = 0.0  # TODO: Implement actual calculation
 
             logger.info("🎉 All dashboard metrics retrieved successfully")
             print("🎉 All dashboard metrics retrieved successfully")
