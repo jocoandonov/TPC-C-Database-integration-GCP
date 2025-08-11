@@ -75,62 +75,119 @@ class AnalyticsService:
             dict: Dashboard metrics or error information
         """
         if not self.connector:
+            logger.error("❌ No database connector available")
+            print("❌ No database connector available")
+            default_metrics = self._get_default_metrics()
+            print("📊 Using default metrics (no database connection):")
+            print("-" * 40)
+            for key, value in default_metrics.items():
+                print(f"   {key}: {value}")
+            print("-" * 40)
             return {
                 "error": "No database connector available",
-                "metrics": self._get_default_metrics(),
+                "metrics": default_metrics,
             }
 
         try:
             # Test connection first
-            if not self.connector.test_connection():
+            logger.info("🔍 Testing database connection...")
+            print("🔍 Testing database connection...")
+            
+            connection_test = self.connector.test_connection()
+            if not connection_test:
+                logger.error("❌ Database connection failed")
+                print("❌ Database connection failed")
+                default_metrics = self._get_default_metrics()
+                print("📊 Using default metrics (connection failed):")
+                print("-" * 40)
+                for key, value in default_metrics.items():
+                    print(f"   {key}: {value}")
+                print("-" * 40)
                 return {
                     "error": "Database connection failed",
-                    "metrics": self._get_default_metrics(),
+                    "metrics": default_metrics,
                 }
+            
+            logger.info("✅ Database connection successful")
+            print("✅ Database connection successful")
 
             # Try to get basic metrics using simple queries
             metrics = {}
 
             # Get warehouse count
             try:
+                logger.info("🔍 Querying warehouse count...")
+                print("🔍 Querying warehouse count...")
                 result = self.connector.execute_query(
                     "SELECT COUNT(*) as count FROM warehouse"
                 )
-                metrics["total_warehouses"] = result[0]["count"] if result else 0
+                warehouse_count = result[0]["count"] if result else 0
+                metrics["total_warehouses"] = warehouse_count
+                logger.info(f"✅ Warehouse count: {warehouse_count}")
+                print(f"✅ Warehouse count: {warehouse_count}")
             except Exception as e:
                 logger.warning(f"Failed to get warehouse count: {str(e)}")
+                print(f"❌ Failed to get warehouse count: {str(e)}")
                 metrics["total_warehouses"] = 0
 
             # Get customer count
             try:
+                logger.info("🔍 Querying customer count...")
+                print("🔍 Querying customer count...")
                 result = self.connector.execute_query(
                     "SELECT COUNT(*) as count FROM customer"
                 )
-                metrics["total_customers"] = result[0]["count"] if result else 0
+                customer_count = result[0]["count"] if result else 0
+                metrics["total_customers"] = customer_count
+                logger.info(f"✅ Customer count: {customer_count}")
+                print(f"✅ Customer count: {customer_count}")
             except Exception as e:
                 logger.warning(f"Failed to get customer count: {str(e)}")
+                print(f"❌ Failed to get customer count: {str(e)}")
                 metrics["total_customers"] = 0
 
             # Get order count
             try:
+                logger.info("🔍 Querying order count...")
+                print("🔍 Querying order count...")
                 result = self.connector.execute_query(
                     "SELECT COUNT(*) as count FROM orders"
                 )
-                metrics["total_orders"] = result[0]["count"] if result else 0
+                order_count = result[0]["count"] if result else 0
+                metrics["total_orders"] = order_count
+                logger.info(f"✅ Order count: {order_count}")
+                print(f"✅ Order count: {order_count}")
             except Exception as e:
                 logger.warning(f"Failed to get order count: {str(e)}")
+                print(f"❌ Failed to get order count: {str(e)}")
                 metrics["total_orders"] = 0
 
             # Get item count
             try:
+                logger.info("🔍 Querying item count...")
+                print("🔍 Querying item count...")
                 result = self.connector.execute_query(
                     "SELECT COUNT(*) as count FROM item"
                 )
-                metrics["total_items"] = result[0]["count"] if result else 0
+                item_count = result[0]["count"] if result else 0
+                metrics["total_items"] = item_count
+                logger.info(f"✅ Item count: {item_count}")
+                print(f"✅ Item count: {item_count}")
             except Exception as e:
                 logger.warning(f"Failed to get item count: {str(e)}")
+                print(f"❌ Failed to get item count: {str(e)}")
                 metrics["total_items"] = 0
 
+            logger.info("🎉 All dashboard metrics retrieved successfully")
+            print("🎉 All dashboard metrics retrieved successfully")
+            
+            # Display metrics summary
+            print("📊 Dashboard Metrics Summary:")
+            print("-" * 30)
+            for key, value in metrics.items():
+                print(f"   {key}: {value}")
+            print("-" * 30)
+            
             return {
                 "success": True,
                 "provider": self.connector.get_provider_name(),
@@ -139,6 +196,7 @@ class AnalyticsService:
 
         except Exception as e:
             logger.error(f"Failed to get dashboard metrics: {str(e)}")
+            print(f"❌ Failed to get dashboard metrics: {str(e)}")
             return {
                 "error": str(e),
                 "provider": self.connector.get_provider_name()

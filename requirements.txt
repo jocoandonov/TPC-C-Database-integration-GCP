@@ -8,6 +8,7 @@ SQLAlchemy==2.0.36
 Flask-Migrate==4.0.7
 
 # Database connectors
+google-cloud-spanner==3.0.0
 
 # Additional utilities
 python-dotenv==1.0.1  # Environment variable management

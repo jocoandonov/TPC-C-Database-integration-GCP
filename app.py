@@ -45,21 +45,37 @@ def initialize_services():
     global         db_connector,         orm_session,         order_service,         inventory_service,         payment_service,         analytics_service
 
     try:
+        print("🚀 Initializing database services...")
+        print("=" * 50)
+        
         # Create database connector
+        print("📡 Creating Spanner connector...")
         db_connector = SpannerConnector()
+        
+        # Test initial connection
+        print("🔍 Testing initial database connection...")
+        connection_status = db_connector.test_connection()
+        if connection_status:
+            print("✅ Initial database connection successful")
+        else:
+            print("❌ Initial database connection failed")
         
         # ORM is not available - using raw SQL only
         orm_session = None
 
         # Get region name from environment
         region_name = os.environ.get("REGION_NAME", "default")
+        print(f"🌍 Region: {region_name}")
 
         # Initialize services without ORM session
+        print("⚙️  Initializing services...")
         order_service = OrderService(db_connector, region_name)
         inventory_service = InventoryService(db_connector)
         payment_service = PaymentService(db_connector)
         analytics_service = AnalyticsService(db_connector)
 
+        print("✅ All services initialized successfully")
+        print("=" * 50)
         logger.info("Services initialized successfully")
 
     except Exception as e:
@@ -71,16 +87,58 @@ with app.app_context():
     initialize_services()
 
 
+def test_table_connectivity():
+    """Test connectivity to all TPC-C tables"""
+    print("📊 Testing TPC-C table connectivity...")
+    print("-" * 40)
+    
+    tables = [
+        "warehouse",
+        "district", 
+        "customer",
+        "orders",
+        "order_line",
+        "item",
+        "stock"
+    ]
+    
+    table_status = {}
+    
+    for table in tables:
+        try:
+            print(f"🔍 Testing table: {table}")
+            result = db_connector.execute_query(f"SELECT COUNT(*) as count FROM {table}")
+            count = result[0]["count"] if result else 0
+            table_status[table] = {"connected": True, "count": count}
+            print(f"   ✅ {table}: {count} records")
+        except Exception as e:
+            table_status[table] = {"connected": False, "error": str(e)}
+            print(f"   ❌ {table}: Connection failed - {str(e)}")
+    
+    print("-" * 40)
+    connected_tables = sum(1 for status in table_status.values() if status["connected"])
+    total_tables = len(tables)
+    print(f"📈 Table connectivity: {connected_tables}/{total_tables} tables connected")
+    
+    return table_status
+
+
 @app.route("/")
 def dashboard():
     """Main dashboard showing key metrics"""
     try:
         logger.info("🏠 Dashboard page accessed")
-        logger.info(f"   Database Provider: {db_connector.get_provider_name()}")
-        logger.info(f"   ORM Available: {orm_available}")
+        print("🏠 Dashboard page accessed")
+        print(f"   Database Provider: {db_connector.get_provider_name()}")
+        print(f"   ORM Available: {orm_available}")
 
+        # Test table connectivity
+        print("🔍 Testing table connectivity...")
+        table_status = test_table_connectivity()
+        
         # Get dashboard metrics
         logger.info("   Fetching dashboard metrics...")
+        print("   Fetching dashboard metrics...")
         # breakpoint()
         metrics = analytics_service.get_dashboard_metrics()
         logger.info(f"   ✅ Dashboard metrics retrieved: {len(metrics)} metrics")
