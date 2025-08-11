@@ -240,6 +240,17 @@ class AnalyticsService:
                 print(f"   {key}: {value}")
             print("-" * 30)
             
+            # Show key business metrics
+            print("🏢 BUSINESS METRICS:")
+            print(f"   • Warehouses: {metrics.get('total_warehouses', 0)}")
+            print(f"   • Customers: {metrics.get('total_customers', 0)}")
+            print(f"   • Orders: {metrics.get('total_orders', 0)}")
+            print(f"   • Items: {metrics.get('total_items', 0)}")
+            print(f"   • New Orders: {metrics.get('new_orders', 0)}")
+            print(f"   • Low Stock: {metrics.get('low_stock_items', 0)}")
+            print(f"   • Recent Orders: {metrics.get('orders_last_24h', 0)}")
+            print(f"   • Avg Order Value: ${metrics.get('avg_order_value', 0.0):.2f}")
+            
             return {
                 "success": True,
                 "provider": self.connector.get_provider_name(),

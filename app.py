@@ -136,20 +136,89 @@ def dashboard():
         print("🏠 Dashboard page accessed")
         print(f"   Database Provider: {db_connector.get_provider_name()}")
         print(f"   ORM Available: {orm_available}")
+        
+        # Add timestamp
+        from datetime import datetime
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f"   📅 Access Time: {current_time}")
+        print(f"   🌐 User Agent: {request.headers.get('User-Agent', 'Unknown')[:50]}...")
 
         # Test table connectivity
         print("🔍 Testing table connectivity...")
+        print("=" * 60)
+        print("🔗 TABLE CONNECTIVITY TEST")
+        print("=" * 60)
         table_status = test_table_connectivity()
+        
+        # Display table connectivity summary
+        if table_status:
+            connected_tables = sum(1 for status in table_status.values() if status.get("connected", False))
+            total_tables = len(table_status)
+            print(f"📊 TABLE CONNECTIVITY SUMMARY: {connected_tables}/{total_tables} tables connected")
+            
+            # Show which tables are working
+            working_tables = [table for table, status in table_status.items() if status.get("connected", False)]
+            if working_tables:
+                print(f"✅ Working tables: {', '.join(working_tables)}")
+            
+            # Show which tables failed
+            failed_tables = [table for table, status in table_status.items() if not status.get("connected", False)]
+            if failed_tables:
+                print(f"❌ Failed tables: {', '.join(failed_tables)}")
+                
+        print("=" * 60)
         
         # Get dashboard metrics
         logger.info("   Fetching dashboard metrics...")
         print("   Fetching dashboard metrics...")
+        print("=" * 60)
+        print("📊 DASHBOARD METRICS REQUEST")
+        print("=" * 60)
+        
         # breakpoint()
         metrics = analytics_service.get_dashboard_metrics()
         logger.info(f"   ✅ Dashboard metrics retrieved: {len(metrics)} metrics")
+        
+        # Display dashboard metrics in console
+        if "metrics" in metrics:
+            print("🎯 DASHBOARD METRICS RESULTS:")
+            print("-" * 40)
+            dashboard_metrics = metrics["metrics"]
+            for key, value in dashboard_metrics.items():
+                print(f"   {key}: {value}")
+            print("-" * 40)
+            
+            # Show summary
+            total_warehouses = dashboard_metrics.get("total_warehouses", 0)
+            total_orders = dashboard_metrics.get("total_orders", 0)
+            total_customers = dashboard_metrics.get("total_customers", 0)
+            total_items = dashboard_metrics.get("total_items", 0)
+            
+            print("📈 METRICS SUMMARY:")
+            print(f"   🏢 Warehouses: {total_warehouses}")
+            print(f"   📦 Orders: {total_orders}")
+            print(f"   👥 Customers: {total_customers}")
+            print(f"   🎯 Items: {total_items}")
+            
+            if total_warehouses > 0:
+                print("✅ Database is populated with data!")
+            else:
+                print("❌ Database appears to be empty")
+                
+        elif "error" in metrics:
+            print(f"❌ DASHBOARD ERROR: {metrics['error']}")
+            
+        print("=" * 60)
 
+        # Extract the actual metrics data for the template
+        template_metrics = metrics.get("metrics", {}) if isinstance(metrics, dict) else {}
+        
+        print("🎯 TEMPLATE DATA:")
+        print(f"   Template metrics: {template_metrics}")
+        print(f"   Provider: {db_connector.get_provider_name()}")
+        
         return render_template(
-            "dashboard.html", metrics=metrics, provider=db_connector.get_provider_name()
+            "dashboard.html", metrics=template_metrics, provider=db_connector.get_provider_name()
         )
     except Exception as e:
         logger.error(f"❌ Dashboard error: {str(e)}")
