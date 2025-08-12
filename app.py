@@ -761,15 +761,15 @@ def api_test_multi_region_orders_by_region():
     try:
         logger.info("🌍 Multi-region Orders by Region API called")
 
-        # Get orders with region information
+        # Get orders grouped by warehouse (since region_created column doesn't exist yet)
         query = """
             SELECT 
-                COALESCE(region_created, 'unknown') as region,
+                o_w_id as warehouse_id,
                 COUNT(*) as order_count,
                 MIN(o_entry_d) as first_order,
                 MAX(o_entry_d) as last_order
-            FROM orders 
-            GROUP BY COALESCE(region_created, 'unknown')
+            FROM order_table 
+            GROUP BY o_w_id
             ORDER BY order_count DESC
         """
 
@@ -780,12 +780,12 @@ def api_test_multi_region_orders_by_region():
         for row in results:
             region_stats.append(
                 {
-                    "region": row["region"],
+                    "warehouse_id": row["warehouse_id"],
                     "order_count": row["order_count"],
-                    "first_order": row["first_order"].isoformat()
+                    "first_order": row["first_order"]
                     if row["first_order"]
                     else None,
-                    "last_order": row["last_order"].isoformat()
+                    "last_order": row["last_order"]
                     if row["last_order"]
                     else None,
                 }
@@ -798,7 +798,7 @@ def api_test_multi_region_orders_by_region():
         return jsonify(
             {
                 "success": True,
-                "region_stats": region_stats,
+                "warehouse_stats": region_stats,
                 "current_region": os.environ.get("REGION_NAME", "default"),
                 "provider": db_connector.get_provider_name(),
             }
@@ -817,7 +817,7 @@ def api_test_multi_region_recent_orders():
 
         limit = request.args.get("limit", 20, type=int)
 
-        # Get recent orders with region information
+        # Get recent orders (region_created column doesn't exist yet)
         # Note: Changed 'no' alias to 'new_ord' to avoid Spanner reserved keyword conflict
         query = """
             SELECT 
@@ -826,19 +826,18 @@ def api_test_multi_region_recent_orders():
                 o.o_d_id,
                 o.o_c_id,
                 o.o_entry_d,
-                COALESCE(o.region_created, 'unknown') as region_created,
                 c.c_first,
                 c.c_middle,
                 c.c_last,
                 CASE WHEN new_ord.no_o_id IS NOT NULL THEN 'New' ELSE 'Delivered' END as status
-            FROM orders o
+            FROM order_table o
             JOIN customer c ON c.c_w_id = o.o_w_id AND c.c_d_id = o.o_d_id AND c.c_id = o.o_c_id
             LEFT JOIN new_order new_ord ON new_ord.no_w_id = o.o_w_id AND new_ord.no_d_id = o.o_d_id AND new_ord.no_o_id = o.o_id
             ORDER BY o.o_entry_d DESC
-            LIMIT %s
+            LIMIT @limit
         """
 
-        results = db_connector.execute_query(query, (limit,))
+        results = db_connector.execute_query(query, {"limit": limit})
 
         # Format results
         orders = []
@@ -849,10 +848,9 @@ def api_test_multi_region_recent_orders():
                     "warehouse_id": row["o_w_id"],
                     "district_id": row["o_d_id"],
                     "customer_id": row["o_c_id"],
-                    "order_date": row["o_entry_d"].isoformat()
+                    "order_date": row["o_entry_d"]
                     if row["o_entry_d"]
                     else None,
-                    "region_created": row["region_created"],
                     "customer_name": f"{row['c_first']} {row['c_middle']} {row['c_last']}",
                     "status": row["status"],
                 }

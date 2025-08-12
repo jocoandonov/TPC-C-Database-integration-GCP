@@ -353,10 +353,10 @@ class AnalyticsService:
                 SELECT o_id, o_w_id, o_d_id, o_c_id, o_entry_d, o_ol_cnt, o_all_local
                 FROM order_table 
                 ORDER BY o_entry_d DESC 
-                LIMIT %s
+                LIMIT @limit
             """
 
-            result = self.connector.execute_query(query, [limit])
+            result = self.connector.execute_query(query, {"limit": limit})
 
             return {
                 "success": True,
@@ -435,10 +435,10 @@ class AnalyticsService:
                 JOIN item i ON s.s_i_id = i.i_id
                 WHERE s.s_quantity < 50
                 ORDER BY s.s_quantity ASC
-                LIMIT %s
+                LIMIT @limit
             """
 
-            result = self.connector.execute_query(query, [limit])
+            result = self.connector.execute_query(query, {"limit": limit})
 
             return {
                 "success": True,

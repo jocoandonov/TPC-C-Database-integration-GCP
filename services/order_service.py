@@ -53,7 +53,7 @@ class OrderService:
                     else:
                         # For other databases
                         self.db.execute_query(
-                            "UPDATE orders SET region_created = %s WHERE o_id = %s AND o_d_id = %s AND o_w_id = %s",
+                            "UPDATE order_table SET region_created = %s WHERE o_id = %s AND o_d_id = %s AND o_w_id = %s",
                             (
                                 self.region_name,
                                 result["order_id"],
@@ -129,7 +129,7 @@ class OrderService:
             order_query = """
                 SELECT o.*, c.c_first, c.c_middle, c.c_last,
                        CASE WHEN no.no_o_id IS NOT NULL THEN 'New' ELSE 'Delivered' END as status
-                FROM orders o
+                FROM order_table o
                 JOIN customer c ON c.c_w_id = o.o_w_id AND c.c_d_id = o.o_d_id AND c.c_id = o.o_c_id
                 LEFT JOIN new_order no ON no.no_w_id = o.o_w_id AND no.no_d_id = o.o_d_id AND no.no_o_id = o.o_id
                 WHERE o.o_w_id = %s AND o.o_d_id = %s AND o.o_id = %s
@@ -179,15 +179,15 @@ class OrderService:
                        c.c_first, c.c_middle, c.c_last,
                        w.w_name,
                        CASE WHEN no.no_o_id IS NOT NULL THEN 'New' ELSE 'Delivered' END as status
-                FROM orders o
+                FROM order_table o
                 JOIN customer c ON c.c_w_id = o.o_w_id AND c.c_d_id = o.o_d_id AND c.c_id = o.o_c_id
                 JOIN warehouse w ON w.w_id = o.o_w_id
                 LEFT JOIN new_order no ON no.no_w_id = o.o_w_id AND no.no_d_id = o.o_d_id AND no.no_o_id = o.o_id
                 ORDER BY o.o_entry_d DESC
-                LIMIT %s
+                LIMIT @limit
             """
 
-            return self.db.execute_query(query, (limit,))
+            return self.db.execute_query(query, {"limit": limit})
 
         except Exception as e:
             logger.error(f"Get recent orders service error: {str(e)}")
@@ -209,14 +209,14 @@ class OrderService:
                 params.append(warehouse_id)
 
             # Total orders
-            total_query = f"SELECT COUNT(*) as count FROM orders {where_clause}"
+            total_query = f"SELECT COUNT(*) as count FROM order_table {where_clause}"
             total_result = self.db.execute_query(total_query, tuple(params))
             stats["total_orders"] = total_result[0]["count"] if total_result else 0
 
             # New orders
             new_query = f"""
                 SELECT COUNT(*) as count 
-                FROM orders o 
+                FROM order_table o 
                 JOIN new_order no ON no.no_w_id = o.o_w_id AND no.no_d_id = o.o_d_id AND no.no_o_id = o.o_id
                 {where_clause}
             """
@@ -229,7 +229,7 @@ class OrderService:
             # Orders today
             today_query = f"""
                 SELECT COUNT(*) as count 
-                FROM orders 
+                FROM order_table 
                 {where_clause} AND DATE(o_entry_d) = CURRENT_DATE
             """
             today_result = self.db.execute_query(today_query, tuple(params))
@@ -241,7 +241,7 @@ class OrderService:
                 FROM (
                     SELECT SUM(ol_amount) as total_amount
                     FROM order_line ol
-                    JOIN orders o ON o.o_w_id = ol.ol_w_id AND o.o_d_id = ol.ol_d_id AND o.o_id = ol.ol_o_id
+                    JOIN order_table o ON o.o_w_id = ol.ol_w_id AND o.o_d_id = ol.ol_d_id AND o.o_id = ol.ol_o_id
                     {where_clause.replace("o_w_id", "o.o_w_id")}
                     GROUP BY ol.ol_w_id, ol.ol_d_id, ol.ol_o_id
                 ) as order_totals

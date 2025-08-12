@@ -5,7 +5,7 @@ Fully functional connector for Google Cloud Spanner
 
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from google.cloud import spanner
 from google.cloud.spanner_v1 import Client
@@ -149,7 +149,7 @@ class SpannerConnector(BaseDatabaseConnector):
             return False
 
     def execute_query(
-        self, query: str, params: Optional[tuple] = None
+        self, query: str, params: Optional[Union[tuple, Dict[str, Any]]] = None
     ) -> List[Dict[str, Any]]:
         """Execute SQL query on Google Spanner"""
         try:
@@ -158,10 +158,35 @@ class SpannerConnector(BaseDatabaseConnector):
                 print("❌ No database connection available")
                 return []
             
+            # Handle different parameter formats
+            spanner_params = {}
+            spanner_param_types = {}
+            
+            if params:
+                if isinstance(params, dict):
+                    # Handle @paramName format - convert to Spanner's $1, $2, $3... format
+                    converted_query = query
+                    param_values = []
+                    
+                    # Extract parameter values in order
+                    for key, value in params.items():
+                        param_values.append(value)
+                        # Replace @paramName with $1, $2, $3...
+                        converted_query = converted_query.replace(f"@{key}", f"${len(param_values)}")
+                    
+                    # Convert to Spanner format
+                    converted_query, spanner_params, spanner_param_types = self._convert_query_to_spanner_format(converted_query, param_values)
+                    query = converted_query
+                    
+                elif isinstance(params, (tuple, list)):
+                    # Handle tuple/list format (convert to @paramName format)
+                    converted_query, spanner_params, spanner_param_types = self._convert_query_to_spanner_format(query, params)
+                    query = converted_query
+            
             # Execute the query
             with self.database.snapshot() as snapshot:
-                if params:
-                    results_iter = snapshot.execute_sql(query, params=params)
+                if spanner_params:
+                    results_iter = snapshot.execute_sql(query, params=spanner_params, param_types=spanner_param_types)
                 else:
                     results_iter = snapshot.execute_sql(query)
                 
