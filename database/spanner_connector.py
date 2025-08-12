@@ -5,7 +5,8 @@ Fully functional connector for Google Cloud Spanner
 
 import logging
 import os
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Tuple
+from datetime import datetime
 
 from google.cloud import spanner
 from google.cloud.spanner_v1 import Client
@@ -30,12 +31,6 @@ class SpannerConnector(BaseDatabaseConnector):
         self.instance_id = os.getenv("SPANNER_INSTANCE_ID")
         self.database_id = os.getenv("SPANNER_DATABASE_ID")
         self.credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-
-        # Display configuration status
-        print(f"🔧 Spanner Configuration:")
-        print(f"   Project ID: {self.project_id or '❌ NOT SET'}")
-        print(f"   Instance ID: {self.instance_id or '❌ NOT SET'}")
-        print(f"   Database ID: {self.database_id or '❌ NOT SET'}")
         
         if self.credentials_path:
             print(f"   Credentials: ✅ {self.credentials_path}")
@@ -160,17 +155,32 @@ class SpannerConnector(BaseDatabaseConnector):
                         # Replace @paramName with $1, $2, $3...
                         converted_query = converted_query.replace(f"@{key}", f"${len(param_values)}")
                     
-                    # Convert to Spanner format
-                    converted_query, spanner_params, spanner_param_types = self._convert_query_to_spanner_format(converted_query, param_values)
+                    # Build Spanner parameters and types
+                    for i, value in enumerate(param_values, 1):
+                        spanner_params[f"p{i}"] = value
+                        # Set explicit parameter types for Spanner
+                        if value is None:
+                            spanner_param_types[f"p{i}"] = spanner.param_types.STRING
+                        elif isinstance(value, bool):
+                            spanner_param_types[f"p{i}"] = spanner.param_types.BOOL
+                        elif isinstance(value, int):
+                            spanner_param_types[f"p{i}"] = spanner.param_types.INT64
+                        elif isinstance(value, float):
+                            spanner_param_types[f"p{i}"] = spanner.param_types.FLOAT64
+                        elif isinstance(value, str):
+                            spanner_param_types[f"p{i}"] = spanner.param_types.STRING
+                        elif isinstance(value, datetime):
+                            spanner_param_types[f"p{i}"] = spanner.param_types.TIMESTAMP
+                        else:
+                            spanner_param_types[f"p{i}"] = spanner.param_types.STRING
+                    
                     query = converted_query
                     
                 elif isinstance(params, (tuple, list)):
                     # Handle tuple/list format (convert to @paramName format)
-                    converted_query, spanner_params, spanner_param_types = self._convert_query_to_spanner_format(query, params)
-                    query = converted_query
+                    spanner_params, spanner_param_types = self._convert_query_to_spanner_format(query, params)
             
             # Execute the query with a fresh snapshot
-            print(f"🔍 Executing query: {query[:100]}...")
             with self.database.snapshot() as snapshot:
                 if spanner_params:
                     print(f"   With params: {spanner_params}")
@@ -189,7 +199,6 @@ class SpannerConnector(BaseDatabaseConnector):
                     # Fallback: try to extract column names from the query
                     query_upper = query.upper()
                     if 'SELECT' in query_upper:
-                        # Extract column names from SELECT clause
                         select_start = query_upper.find('SELECT') + 6
                         from_start = query_upper.find('FROM')
                         if from_start > select_start:
@@ -237,44 +246,122 @@ class SpannerConnector(BaseDatabaseConnector):
             print(f"   Error type: {type(e).__name__}")
             return []
 
+    def execute_dml(
+        self, query: str, params: Optional[Union[tuple, Dict[str, Any]]] = None
+    ) -> bool:
+        """Execute DML statements (INSERT, UPDATE, DELETE) on Google Spanner"""
+        try:
+            if not self.database:
+                logger.error("No database connection available")
+                print("❌ No database connection available")
+                return False
+            
+            # Handle different parameter formats
+            spanner_params = {}
+            spanner_param_types = {}
+            
+            if params:
+                if isinstance(params, dict):
+                    # Handle @paramName format - convert to Spanner's $1, $2, $3... format
+                    converted_query = query
+                    param_values = []
+                    
+                    # Extract parameter values in order
+                    for key, value in params.items():
+                        param_values.append(value)
+                        # Replace @paramName with $1, $2, $3...
+                        converted_query = converted_query.replace(f"@{key}", f"${len(param_values)}")
+                    
+                    # Build Spanner parameters and types
+                    for i, value in enumerate(param_values, 1):
+                        spanner_params[f"p{i}"] = value
+                        # Set explicit parameter types for Spanner
+                        if value is None:
+                            spanner_param_types[f"p{i}"] = spanner.param_types.STRING
+                        elif isinstance(value, bool):
+                            spanner_param_types[f"p{i}"] = spanner.param_types.BOOL
+                        elif isinstance(value, int):
+                            spanner_param_types[f"p{i}"] = spanner.param_types.INT64
+                        elif isinstance(value, float):
+                            spanner_param_types[f"p{i}"] = spanner.param_types.FLOAT64
+                        elif isinstance(value, str):
+                            spanner_param_types[f"p{i}"] = spanner.param_types.STRING
+                        elif isinstance(value, datetime):
+                            spanner_param_types[f"p{i}"] = spanner.param_types.TIMESTAMP
+                        else:
+                            spanner_param_types[f"p{i}"] = spanner.param_types.STRING
+                    
+                    query = converted_query
+                    
+                elif isinstance(params, (tuple, list)):
+                    # Handle tuple/list format (convert to @paramName format)
+                    spanner_params, spanner_param_types = self._convert_query_to_spanner_format(query, params)
+            
+            # Execute the DML statement with a read-write transaction
+            print(f"🔧 Executing DML: {query[:100]}...")
+            
+            def execute_dml_in_transaction(transaction):
+                if spanner_params:
+                    print(f"   With params: {spanner_params}")
+                    transaction.execute_update(query, params=spanner_params, param_types=spanner_param_types)
+                else:
+                    transaction.execute_update(query)
+            
+            # Execute in a read-write transaction
+            self.database.run_in_transaction(execute_dml_in_transaction)
+            
+            print(f"   ✅ DML executed successfully")
+            return True
+                
+        except Exception as e:
+            logger.error(f"DML execution failed: {str(e)}")
+            print(f"❌ DML execution failed: {str(e)}")
+            print(f"   Query: {query}")
+            print(f"   Error type: {type(e).__name__}")
+            return False
+
     def get_provider_name(self) -> str:
         """Get the database provider name"""
         return self.provider_name
 
-    def _convert_query_to_spanner_format(self, query: str, param_values: List[Any]) -> tuple[str, Dict[str, Any], Dict[str, Any]]:
-        """
-        Convert a query with %s placeholders to Spanner PostgreSQL format with $1, $2, $3... placeholders
-        
-        Args:
-            query: SQL query with %s placeholders
-            param_values: List of parameter values
+    def _convert_query_to_spanner_format(
+        self, query: str, params: Union[tuple, list]
+    ) -> Tuple[List[Any], Dict[str, Any]]:
+        """Convert query with %s placeholders to Spanner format with $1, $2, $3..."""
+        try:
+            # Convert %s to $1, $2, $3...
+            converted_query = query
+            param_values = []
+            param_types = {}
             
-        Returns:
-            tuple: (converted_query, params_dict, param_types_dict)
-        """
-        converted_query = query
-        params = {}
-        param_types = {}
-        
-        for i, value in enumerate(param_values, 1):
-            placeholder = f"${i}"
-            converted_query = converted_query.replace("%s", placeholder, 1)
-            params[f"p{i}"] = value
+            for i, param in enumerate(params, 1):
+                param_values.append(param)
+                converted_query = converted_query.replace("%s", f"${i}", 1)
+                
+                # Set explicit parameter types for Spanner
+                if param is None:
+                    # For NULL values, we need to infer the type from context
+                    # For now, use STRING as a safe default, but this should be improved
+                    param_types[f"p{i}"] = spanner.param_types.STRING
+                elif isinstance(param, bool):
+                    param_types[f"p{i}"] = spanner.param_types.BOOL
+                elif isinstance(param, int):
+                    param_types[f"p{i}"] = spanner.param_types.INT64
+                elif isinstance(param, float):
+                    param_types[f"p{i}"] = spanner.param_types.FLOAT64
+                elif isinstance(param, str):
+                    param_types[f"p{i}"] = spanner.param_types.STRING
+                elif isinstance(param, datetime):
+                    param_types[f"p{i}"] = spanner.param_types.TIMESTAMP
+                else:
+                    # Default to STRING for unknown types
+                    param_types[f"p{i}"] = spanner.param_types.STRING
             
-            # Determine parameter type
-            if isinstance(value, int):
-                param_types[f"p{i}"] = spanner.param_types.INT64
-            elif isinstance(value, float):
-                param_types[f"p{i}"] = spanner.param_types.FLOAT64
-            elif isinstance(value, str):
-                param_types[f"p{i}"] = spanner.param_types.STRING
-            elif isinstance(value, bool):
-                param_types[f"p{i}"] = spanner.param_types.BOOL
-            else:
-                # Default to STRING for unknown types
-                param_types[f"p{i}"] = spanner.param_types.STRING
-        
-        return converted_query, params, param_types
+            return param_values, param_types
+            
+        except Exception as e:
+            logger.error(f"Query conversion failed: {str(e)}")
+            return params, {}
 
     def get_payment_history_paginated(
         self,
@@ -904,7 +991,7 @@ class SpannerConnector(BaseDatabaseConnector):
             if not pending_orders:
                 return {"success": False, "error": "No pending orders for delivery"}
             
-            order = pending_orders[0]
+            order = pending_orders[0]  # execute_query returns a list, so get first item
             order_id = order["no_o_id"]
             district_id = order["no_d_id"]
             
@@ -924,7 +1011,7 @@ class SpannerConnector(BaseDatabaseConnector):
             if not order_info:
                 return {"success": False, "error": "Order not found"}
             
-            order_data = order_info[0]
+            order_data = order_info[0]  # execute_query returns a list, so get first item
             customer_id = order_data["o_c_id"]
             order_line_count = order_data["o_ol_cnt"]
             
@@ -944,7 +1031,7 @@ class SpannerConnector(BaseDatabaseConnector):
             if not customer_info:
                 return {"success": False, "error": "Customer not found"}
             
-            customer = customer_info[0]
+            customer = customer_info[0]  # execute_query returns a list, so get first item
             
             # Calculate delivery amount from order lines
             delivery_amount_query = """
@@ -1005,7 +1092,7 @@ class SpannerConnector(BaseDatabaseConnector):
             if not customer_result:
                 return {"success": False, "error": "Customer not found"}
             
-            customer = customer_result[0]
+            customer = customer_result[0]  # execute_query returns a list, so get first item
             
             # Get warehouse and district information
             warehouse_query = """
@@ -1017,7 +1104,7 @@ class SpannerConnector(BaseDatabaseConnector):
             if not warehouse_result:
                 return {"success": False, "error": "Warehouse not found"}
             
-            warehouse = warehouse_result[0]
+            warehouse = warehouse_result[0]  # execute_query returns a list, so get first item
             
             district_query = """
                 SELECT d_name, d_street_1, d_street_2, d_city, d_state, d_zip, d_ytd
@@ -1031,7 +1118,7 @@ class SpannerConnector(BaseDatabaseConnector):
             if not district_result:
                 return {"success": False, "error": "District not found"}
             
-            district = district_result[0]
+            district = district_result[0]  # execute_query returns a list, so get first item
             
             # Calculate new customer balance and payment stats
             new_balance = customer["c_balance"] - amount

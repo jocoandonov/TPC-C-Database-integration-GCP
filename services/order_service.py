@@ -163,20 +163,80 @@ class OrderService:
                 "o_all_local": 1 if all(item.get("supply_warehouse_id", warehouse_id) == warehouse_id for item in items) else 0
             }
             
-            # For now, we'll simulate the order creation since we can't do transactions
-            # In a real implementation, this would be wrapped in a transaction
-            logger.info(f"Order {order_id} would be created with total amount: {total_amount:.2f}")
-            logger.info(f"Order lines: {len(order_lines)} lines")
-            
-            return {
-                "success": True,
-                "order_id": order_id,
-                "customer_name": f"{customer['c_first']} {customer['c_middle']} {customer['c_last']}",
-                "total_amount": round(total_amount, 2),
-                "items_count": len(items),
-                "region_created": self.region_name,
-                "message": "Order created successfully (simulated - no actual database changes)"
-            }
+            # Actually create the order in the database
+            try:
+                # Insert into order_table - handle o_carrier_id as NULL explicitly
+                order_insert_query = """
+                    INSERT INTO order_table (o_id, o_d_id, o_w_id, o_c_id, o_entry_d, o_carrier_id, o_ol_cnt, o_all_local)
+                    VALUES (@order_id, @district_id, @warehouse_id, @customer_id, CURRENT_TIMESTAMP, NULL, @ol_cnt, @all_local)
+                """
+                if not self.db.execute_dml(order_insert_query, {
+                    "order_id": order_id,
+                    "district_id": district_id,
+                    "warehouse_id": warehouse_id,
+                    "customer_id": customer_id,
+                    "ol_cnt": len(items),
+                    "all_local": 1 if all(item.get("supply_warehouse_id", warehouse_id) == warehouse_id for item in items) else 0
+                }):
+                    return {"success": False, "error": "Failed to insert order"}
+                
+                # Insert into new_order table
+                new_order_insert_query = """
+                    INSERT INTO new_order (no_o_id, no_d_id, no_w_id)
+                    VALUES (@order_id, @district_id, @warehouse_id)
+                """
+                if not self.db.execute_dml(new_order_insert_query, {
+                    "order_id": order_id,
+                    "district_id": district_id,
+                    "warehouse_id": warehouse_id
+                }):
+                    return {"success": False, "error": "Failed to insert new order"}
+                
+                # Insert order lines
+                for order_line in order_lines:
+                    line_insert_query = """
+                        INSERT INTO order_line (ol_o_id, ol_d_id, ol_w_id, ol_number, ol_i_id, ol_supply_w_id, ol_quantity, ol_amount, ol_dist_info)
+                        VALUES (@ol_o_id, @ol_d_id, @ol_w_id, @ol_number, @ol_i_id, @ol_supply_w_id, @ol_quantity, @ol_amount, @ol_dist_info)
+                    """
+                    if not self.db.execute_dml(line_insert_query, order_line):
+                        return {"success": False, "error": f"Failed to insert order line {order_line['ol_number']}"}
+                
+                # Update stock quantities
+                for item in items:
+                    item_id = item.get("item_id")
+                    supply_warehouse_id = item.get("supply_warehouse_id", warehouse_id)
+                    quantity = item.get("quantity", 1)
+                    
+                    stock_update_query = """
+                        UPDATE stock 
+                        SET s_quantity = s_quantity - @quantity,
+                            s_ytd = s_ytd + @quantity,
+                            s_order_cnt = s_order_cnt + 1
+                        WHERE s_i_id = @item_id AND s_w_id = @supply_warehouse_id
+                    """
+                    if not self.db.execute_dml(stock_update_query, {
+                        "quantity": quantity,
+                        "item_id": item_id,
+                        "supply_warehouse_id": supply_warehouse_id
+                    }):
+                        return {"success": False, "error": f"Failed to update stock for item {item_id}"}
+                
+                logger.info(f"Order {order_id} successfully created in database with total amount: {total_amount:.2f}")
+                logger.info(f"Order lines: {len(order_lines)} lines inserted")
+                
+                return {
+                    "success": True,
+                    "order_id": order_id,
+                    "customer_name": f"{customer['c_first']} {customer['c_middle']} {customer['c_last']}",
+                    "total_amount": round(total_amount, 2),
+                    "items_count": len(items),
+                    "region_created": self.region_name,
+                    "message": "Order created successfully in database"
+                }
+                
+            except Exception as db_error:
+                logger.error(f"Database error during order creation: {str(db_error)}")
+                return {"success": False, "error": f"Failed to create order in database: {str(db_error)}"}
             
         except Exception as e:
             logger.error(f"New order service error: {str(e)}")
