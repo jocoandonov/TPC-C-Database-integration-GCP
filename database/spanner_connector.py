@@ -193,6 +193,41 @@ class SpannerConnector(BaseDatabaseConnector):
         """Get the database provider name"""
         return self.provider_name
 
+    def _convert_query_to_spanner_format(self, query: str, param_values: List[Any]) -> tuple[str, Dict[str, Any], Dict[str, Any]]:
+        """
+        Convert a query with %s placeholders to Spanner PostgreSQL format with $1, $2, $3... placeholders
+        
+        Args:
+            query: SQL query with %s placeholders
+            param_values: List of parameter values
+            
+        Returns:
+            tuple: (converted_query, params_dict, param_types_dict)
+        """
+        converted_query = query
+        params = {}
+        param_types = {}
+        
+        for i, value in enumerate(param_values, 1):
+            placeholder = f"${i}"
+            converted_query = converted_query.replace("%s", placeholder, 1)
+            params[f"p{i}"] = value
+            
+            # Determine parameter type
+            if isinstance(value, int):
+                param_types[f"p{i}"] = spanner.param_types.INT64
+            elif isinstance(value, float):
+                param_types[f"p{i}"] = spanner.param_types.FLOAT64
+            elif isinstance(value, str):
+                param_types[f"p{i}"] = spanner.param_types.STRING
+            elif isinstance(value, bool):
+                param_types[f"p{i}"] = spanner.param_types.BOOL
+            else:
+                # Default to STRING for unknown types
+                param_types[f"p{i}"] = spanner.param_types.STRING
+        
+        return converted_query, params, param_types
+
     def get_payment_history_paginated(
         self,
         warehouse_id: Optional[int] = None,
@@ -216,34 +251,72 @@ class SpannerConnector(BaseDatabaseConnector):
             
             # Build WHERE clause based on filters
             where_conditions = []
-            params = []
+            params = {}
+            param_types = {}
+            param_counter = 1
             
             if warehouse_id is not None:
-                where_conditions.append("h.h_w_id = %s")
-                params.append(warehouse_id)
+                where_conditions.append(f"h.h_w_id = ${param_counter}")
+                params[f"p{param_counter}"] = warehouse_id
+                param_types[f"p{param_counter}"] = spanner.param_types.INT64
+                param_counter += 1
             
             if district_id is not None:
-                where_conditions.append("h.h_d_id = %s")
-                params.append(district_id)
+                where_conditions.append(f"h.h_d_id = ${param_counter}")
+                params[f"p{param_counter}"] = district_id
+                param_types[f"p{param_counter}"] = spanner.param_types.INT64
+                param_counter += 1
             
             if customer_id is not None:
-                where_conditions.append("h.h_c_id = %s")
-                params.append(customer_id)
+                where_conditions.append(f"h.h_c_id = ${param_counter}")
+                params[f"p{param_counter}"] = customer_id
+                param_types[f"p{param_counter}"] = spanner.param_types.INT64
+                param_counter += 1
             
             if where_conditions:
                 query += " WHERE " + " AND ".join(where_conditions)
             
             # Get total count for pagination
             count_query = f"SELECT COUNT(*) as count FROM ({query}) as subquery"
-            count_result = self.execute_query(count_query, tuple(params) if params else None)
-            total_count = count_result[0]["count"] if count_result else 0
+            
+            # Execute count query with current params
+            with self.database.snapshot() as snapshot:
+                count_results = snapshot.execute_sql(count_query, params=params, param_types=param_types)
+                total_count = 0
+                for row in count_results:
+                    total_count = int(row[0]) if row[0] is not None else 0
+                    break
             
             # Add ORDER BY and LIMIT
-            query += " ORDER BY h.h_date DESC LIMIT %s OFFSET %s"
-            params.extend([limit, offset])
+            query += f" ORDER BY h.h_date DESC LIMIT ${param_counter} OFFSET ${param_counter + 1}"
+            params[f"p{param_counter}"] = limit
+            param_types[f"p{param_counter}"] = spanner.param_types.INT64
+            params[f"p{param_counter + 1}"] = offset
+            param_types[f"p{param_counter + 1}"] = spanner.param_types.INT64
             
             # Execute the main query
-            payments = self.execute_query(query, tuple(params) if params else None)
+            with self.database.snapshot() as snapshot:
+                results = snapshot.execute_sql(query, params=params, param_types=param_types)
+                
+                # Convert results to list of dictionaries
+                payments = []
+                if hasattr(results, 'fields') and results.fields:
+                    column_names = [field.name for field in results.fields]
+                else:
+                    # Fallback column names for payment history
+                    column_names = ['h_w_id', 'h_d_id', 'h_c_id', 'h_amount', 'h_date', 'c_first', 'c_middle', 'c_last', 'warehouse_name', 'district_name']
+                
+                for row in results:
+                    row_dict = {}
+                    for i, value in enumerate(row):
+                        col_name = column_names[i] if i < len(column_names) else f"col_{i}"
+                        if hasattr(value, 'isoformat'):  # datetime
+                            row_dict[col_name] = value.isoformat()
+                        elif value is None:
+                            row_dict[col_name] = None
+                        else:
+                            row_dict[col_name] = value
+                    payments.append(row_dict)
             
             # Calculate pagination info
             has_next = (offset + limit) < total_count
@@ -292,19 +365,27 @@ class SpannerConnector(BaseDatabaseConnector):
             
             # Build WHERE clause based on filters
             where_conditions = []
-            params = []
+            params = {}
+            param_types = {}
+            param_counter = 1
             
             if warehouse_id is not None:
-                where_conditions.append("o.o_w_id = %s")
-                params.append(warehouse_id)
+                where_conditions.append(f"o.o_w_id = ${param_counter}")
+                params[f"p{param_counter}"] = warehouse_id
+                param_types[f"p{param_counter}"] = spanner.param_types.INT64
+                param_counter += 1
             
             if district_id is not None:
-                where_conditions.append("o.o_d_id = %s")
-                params.append(district_id)
+                where_conditions.append(f"o.o_d_id = ${param_counter}")
+                params[f"p{param_counter}"] = district_id
+                param_types[f"p{param_counter}"] = spanner.param_types.INT64
+                param_counter += 1
             
             if customer_id is not None:
-                where_conditions.append("o.o_c_id = %s")
-                params.append(customer_id)
+                where_conditions.append(f"o.o_c_id = ${param_counter}")
+                params[f"p{param_counter}"] = customer_id
+                param_types[f"p{param_counter}"] = spanner.param_types.INT64
+                param_counter += 1
             
             if status is not None:
                 if status == 'new':
@@ -317,15 +398,45 @@ class SpannerConnector(BaseDatabaseConnector):
             
             # Get total count for pagination
             count_query = f"SELECT COUNT(*) as count FROM ({query}) as subquery"
-            count_result = self.execute_query(count_query, tuple(params) if params else None)
-            total_count = count_result[0]["count"] if count_result else 0
+            
+            # Execute count query with current params
+            with self.database.snapshot() as snapshot:
+                count_results = snapshot.execute_sql(count_query, params=params, param_types=param_types)
+                total_count = 0
+                for row in count_results:
+                    total_count = int(row[0]) if row[0] is not None else 0
+                    break
             
             # Add ORDER BY and LIMIT
-            query += " ORDER BY o.o_entry_d DESC LIMIT %s OFFSET %s"
-            params.extend([limit, offset])
+            query += f" ORDER BY o.o_entry_d DESC LIMIT ${param_counter} OFFSET ${param_counter + 1}"
+            params[f"p{param_counter}"] = limit
+            param_types[f"p{param_counter}"] = spanner.param_types.INT64
+            params[f"p{param_counter + 1}"] = offset
+            param_types[f"p{param_counter + 1}"] = spanner.param_types.INT64
             
             # Execute the main query
-            orders = self.execute_query(query, tuple(params) if params else None)
+            with self.database.snapshot() as snapshot:
+                results = snapshot.execute_sql(query, params=params, param_types=param_types)
+                
+                # Convert results to list of dictionaries
+                orders = []
+                if hasattr(results, 'fields') and results.fields:
+                    column_names = [field.name for field in results.fields]
+                else:
+                    # Fallback column names for orders
+                    column_names = ['o_id', 'o_w_id', 'o_d_id', 'o_c_id', 'o_entry_d', 'o_ol_cnt', 'o_carrier_id', 'c_first', 'c_middle', 'c_last', 'status']
+                
+                for row in results:
+                    row_dict = {}
+                    for i, value in enumerate(row):
+                        col_name = column_names[i] if i < len(column_names) else f"col_{i}"
+                        if hasattr(value, 'isoformat'):  # datetime
+                            row_dict[col_name] = value.isoformat()
+                        elif value is None:
+                            row_dict[col_name] = None
+                        else:
+                            row_dict[col_name] = value
+                    orders.append(row_dict)
             
             # Calculate pagination info
             has_next = (offset + limit) < total_count
