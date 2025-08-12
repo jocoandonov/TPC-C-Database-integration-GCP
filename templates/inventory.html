@@ -37,7 +37,8 @@
             <div class="col-md-2">
                 <label for="threshold" class="form-label">Low Stock Threshold</label>
                 <input type="number" class="form-control" id="threshold" name="threshold" 
-                       value="{{ filters.threshold or 10 }}" min="1" max="100">
+                       value="{{ filters.threshold or '' }}" min="1" max="100" placeholder="Leave empty for all items">
+                <small class="form-text text-muted">Leave empty to show all inventory items</small>
             </div>
             <div class="col-md-3">
                 <label for="item_search" class="form-label">Item Search</label>
@@ -78,9 +79,20 @@
         <div class="card text-center">
             <div class="card-body">
                 <h5 class="card-title text-danger">
-                    {{ inventory|selectattr('s_quantity', 'lt', filters.threshold or 10)|list|length }}
+                    {% if filters.threshold %}
+                        {{ inventory|selectattr('s_quantity', 'lt', filters.threshold)|list|length }}
+                    {% else %}
+                        {{ inventory|selectattr('s_quantity', 'lt', 10)|list|length }}
+                    {% endif %}
                 </h5>
                 <p class="card-text">Low Stock Items</p>
+                <small class="text-muted">
+                    {% if filters.threshold %}
+                        Below {{ filters.threshold }}
+                    {% else %}
+                        Below 10 (default)
+                    {% endif %}
+                </small>
             </div>
         </div>
     </div>
@@ -121,19 +133,19 @@
         <div class="d-flex align-items-center">
             <small class="text-muted me-3">Page {{ pagination.page }} of {{ pagination.total_pages }}</small>
             <div class="btn-group btn-group-sm" role="group">
-                <a href="{{ url_for('inventory', warehouse_id=filters.warehouse_id or '', threshold=filters.threshold, item_search=filters.item_search or '', limit=filters.limit, page=1) }}" 
+                <a href="{{ url_for('inventory', warehouse_id=filters.warehouse_id or '', threshold=filters.threshold or '', item_search=filters.item_search or '', limit=filters.limit, page=1) }}" 
                    class="btn btn-outline-secondary {% if pagination.page == 1 %}disabled{% endif %}">
                     <i class="bi bi-chevron-double-left"></i>
                 </a>
-                <a href="{{ url_for('inventory', warehouse_id=filters.warehouse_id or '', threshold=filters.threshold, item_search=filters.item_search or '', limit=filters.limit, page=pagination.prev_page) if pagination.has_prev else '#' }}" 
+                <a href="{{ url_for('inventory', warehouse_id=filters.warehouse_id or '', threshold=filters.threshold or '', item_search=filters.item_search or '', limit=filters.limit, page=pagination.prev_page) if pagination.has_prev else '#' }}" 
                    class="btn btn-outline-secondary {% if not pagination.has_prev %}disabled{% endif %}">
                     <i class="bi bi-chevron-left"></i>
                 </a>
-                <a href="{{ url_for('inventory', warehouse_id=filters.warehouse_id or '', threshold=filters.threshold, item_search=filters.item_search or '', limit=filters.limit, page=pagination.next_page) if pagination.has_next else '#' }}" 
+                <a href="{{ url_for('inventory', warehouse_id=filters.warehouse_id or '', threshold=filters.threshold or '', item_search=filters.item_search or '', limit=filters.limit, page=pagination.next_page) if pagination.has_next else '#' }}" 
                    class="btn btn-outline-secondary {% if not pagination.has_next %}disabled{% endif %}">
                     <i class="bi bi-chevron-right"></i>
                 </a>
-                <a href="{{ url_for('inventory', warehouse_id=filters.warehouse_id or '', threshold=filters.threshold, item_search=filters.item_search or '', limit=filters.limit, page=pagination.total_pages) }}" 
+                <a href="{{ url_for('inventory', warehouse_id=filters.warehouse_id or '', threshold=filters.threshold or '', item_search=filters.item_search or '', limit=filters.limit, page=pagination.total_pages) }}" 
                    class="btn btn-outline-secondary {% if pagination.page == pagination.total_pages %}disabled{% endif %}">
                     <i class="bi bi-chevron-double-right"></i>
                 </a>
@@ -171,9 +183,10 @@
                             <small class="text-muted">{{ item.w_name }}</small>
                         </td>
                         <td>
-                            {% if item.s_quantity < (filters.threshold or 10) %}
+                            {% set threshold_value = filters.threshold or 10 %}
+                            {% if item.s_quantity < threshold_value %}
                             <span class="badge bg-danger">{{ item.s_quantity }}</span>
-                            {% elif item.s_quantity < (filters.threshold or 10) * 2 %}
+                            {% elif item.s_quantity < threshold_value * 2 %}
                             <span class="badge bg-warning">{{ item.s_quantity }}</span>
                             {% else %}
                             <span class="badge bg-success">{{ item.s_quantity }}</span>
@@ -183,9 +196,10 @@
                         <td>{{ item.s_ytd }}</td>
                         <td>{{ item.s_order_cnt }}</td>
                         <td>
-                            {% if item.s_quantity < (filters.threshold or 10) %}
+                            {% set threshold_value = filters.threshold or 10 %}
+                            {% if item.s_quantity < threshold_value %}
                             <span class="badge bg-danger">Low Stock</span>
-                            {% elif item.s_quantity < (filters.threshold or 10) * 2 %}
+                            {% elif item.s_quantity < threshold_value * 2 %}
                             <span class="badge bg-warning">Medium Stock</span>
                             {% else %}
                             <span class="badge bg-success">Good Stock</span>
@@ -208,11 +222,26 @@
                 </tbody>
             </table>
         </div>
-        {% else %}
+        {% elif inventory is none %}
+        <div class="text-center py-4">
+            <i class="bi bi-exclamation-triangle display-1 text-warning"></i>
+            <h4 class="text-warning">Inventory data is null</h4>
+            <p class="text-muted">There was an issue loading inventory data. Please check the console for errors.</p>
+            <button class="btn btn-outline-primary" onclick="location.reload()">
+                <i class="bi bi-arrow-clockwise"></i> Reload Page
+            </button>
+        </div>
+        {% elif inventory is defined and inventory|length == 0 %}
         <div class="text-center py-4">
             <i class="bi bi-box-seam display-1 text-muted"></i>
             <h4 class="text-muted">No inventory items found</h4>
             <p class="text-muted">Try adjusting your filters to see inventory data.</p>
+        </div>
+        {% else %}
+        <div class="text-center py-4">
+            <i class="bi bi-question-circle display-1 text-muted"></i>
+            <h4 class="text-muted">Inventory data unavailable</h4>
+            <p class="text-muted">Unable to determine inventory status. Please check the console for errors.</p>
         </div>
         {% endif %}
         
@@ -226,14 +255,14 @@
                 <ul class="pagination pagination-sm mb-0">
                     <!-- First page -->
                     <li class="page-item {% if pagination.page == 1 %}disabled{% endif %}">
-                        <a class="page-link" href="{{ url_for('inventory', warehouse_id=filters.warehouse_id or '', threshold=filters.threshold, item_search=filters.item_search or '', limit=filters.limit, page=1) }}">
+                        <a class="page-link" href="{{ url_for('inventory', warehouse_id=filters.warehouse_id or '', threshold=filters.threshold or '', item_search=filters.item_search or '', limit=filters.limit, page=1) }}">
                             <i class="bi bi-chevron-double-left"></i>
                         </a>
                     </li>
                     
                     <!-- Previous page -->
                     <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
-                        <a class="page-link" href="{{ url_for('inventory', warehouse_id=filters.warehouse_id or '', threshold=filters.threshold, item_search=filters.item_search or '', limit=filters.limit, page=pagination.prev_page) if pagination.has_prev else '#' }}">
+                        <a class="page-link" href="{{ url_for('inventory', warehouse_id=filters.warehouse_id or '', threshold=filters.threshold or '', item_search=filters.item_search or '', limit=filters.limit, page=pagination.prev_page) if pagination.has_prev else '#' }}">
                             <i class="bi bi-chevron-left"></i>
                         </a>
                     </li>
@@ -244,7 +273,7 @@
                     
                     {% if start_page > 1 %}
                         <li class="page-item">
-                            <a class="page-link" href="{{ url_for('inventory', warehouse_id=filters.warehouse_id or '', threshold=filters.threshold, item_search=filters.item_search or '', limit=filters.limit, page=1) }}">1</a>
+                            <a class="page-link" href="{{ url_for('inventory', warehouse_id=filters.warehouse_id or '', threshold=filters.threshold or '', item_search=filters.item_search or '', limit=filters.limit, page=1) }}">1</a>
                         </li>
                         {% if start_page > 2 %}
                             <li class="page-item disabled">
@@ -255,7 +284,7 @@
                     
                     {% for page_num in range(start_page, end_page + 1) %}
                         <li class="page-item {% if page_num == pagination.page %}active{% endif %}">
-                            <a class="page-link" href="{{ url_for('inventory', warehouse_id=filters.warehouse_id or '', threshold=filters.threshold, item_search=filters.item_search or '', limit=filters.limit, page=page_num) }}">{{ page_num }}</a>
+                            <a class="page-link" href="{{ url_for('inventory', warehouse_id=filters.warehouse_id or '', threshold=filters.threshold or '', item_search=filters.item_search or '', limit=filters.limit, page=page_num) }}">{{ page_num }}</a>
                         </li>
                     {% endfor %}
                     
@@ -266,20 +295,20 @@
                             </li>
                         {% endif %}
                         <li class="page-item">
-                            <a class="page-link" href="{{ url_for('inventory', warehouse_id=filters.warehouse_id or '', threshold=filters.threshold, item_search=filters.item_search or '', limit=filters.limit, page=pagination.total_pages) }}">{{ pagination.total_pages }}</a>
+                            <a class="page-link" href="{{ url_for('inventory', warehouse_id=filters.warehouse_id or '', threshold=filters.threshold or '', item_search=filters.item_search or '', limit=filters.limit, page=pagination.total_pages) }}">{{ pagination.total_pages }}</a>
                         </li>
                     {% endif %}
                     
                     <!-- Next page -->
                     <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
-                        <a class="page-link" href="{{ url_for('inventory', warehouse_id=filters.warehouse_id or '', threshold=filters.threshold, item_search=filters.item_search or '', limit=filters.limit, page=pagination.next_page) if pagination.has_next else '#' }}">
+                        <a class="page-link" href="{{ url_for('inventory', warehouse_id=filters.warehouse_id or '', threshold=filters.threshold or '', item_search=filters.item_search or '', limit=filters.limit, page=pagination.next_page) if pagination.has_next else '#' }}">
                             <i class="bi bi-chevron-right"></i>
                         </a>
                     </li>
                     
                     <!-- Last page -->
                     <li class="page-item {% if pagination.page == pagination.total_pages %}disabled{% endif %}">
-                        <a class="page-link" href="{{ url_for('inventory', warehouse_id=filters.warehouse_id or '', threshold=filters.threshold, item_search=filters.item_search or '', limit=filters.limit, page=pagination.total_pages) }}">
+                        <a class="page-link" href="{{ url_for('inventory', warehouse_id=filters.warehouse_id or '', threshold=filters.threshold or '', item_search=filters.item_search or '', limit=filters.limit, page=pagination.total_pages) }}">
                             <i class="bi bi-chevron-double-right"></i>
                         </a>
                     </li>
@@ -351,6 +380,46 @@
 
 {% block scripts %}
 <script>
+// Debug logging for template variables
+console.log('🔍 Inventory Template Debug Info:');
+console.log('🔍 ========================================');
+// Safely log inventory data
+try {
+    const inventoryData = {{ inventory|tojson|safe }};
+    console.log('📦 Inventory Data:', inventoryData);
+    console.log('📦 Inventory Type:', typeof inventoryData);
+    console.log('📦 Inventory Length:', Array.isArray(inventoryData) ? inventoryData.length : 'Not an array');
+    if (inventoryData === null) {
+        console.error('❌ Inventory is null!');
+    } else if (inventoryData === undefined) {
+        console.error('❌ Inventory is undefined!');
+    } else if (Array.isArray(inventoryData)) {
+        console.log(`✅ Inventory is an array with ${inventoryData.length} items`);
+        if (inventoryData.length > 0) {
+            console.log('📦 First inventory item sample:', inventoryData[0]);
+            console.log('📦 Inventory item keys:', Object.keys(inventoryData[0]));
+        }
+    } else {
+        console.warn('⚠️ Inventory is not an array:', typeof inventoryData, inventoryData);
+    }
+} catch (error) {
+    console.error('❌ Error logging inventory data:', error);
+}
+
+// Safely log other template variables
+try {
+    console.log('🏢 Warehouses:', {{ warehouses|tojson|safe }});
+    console.log('📄 Pagination:', {{ pagination|tojson|safe }});
+    console.log('🔍 Filters:', {{ filters|tojson|safe }});
+} catch (error) {
+    console.error('❌ Error logging other template variables:', error);
+}
+
+// Additional debugging info
+console.log('🔍 Template rendering completed');
+console.log('🔍 Check for any JavaScript errors above');
+console.log('🔍 ========================================');
+
 function viewItemDetails(itemId, warehouseId) {
     const modal = new bootstrap.Modal(document.getElementById('itemDetailsModal'));
     const content = document.getElementById('itemDetailsContent');

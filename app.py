@@ -282,9 +282,17 @@ def inventory():
     try:
         logger.info("📦 Inventory page accessed")
 
+        # Check if inventory service is available
+        if not inventory_service:
+            logger.error("❌ Inventory service not initialized")
+            flash("Inventory service not available", "error")
+            return render_template(
+                "inventory.html", inventory=[], warehouses=[], pagination={}, filters={}
+            )
+
         # Get filter parameters
         warehouse_id = request.args.get("warehouse_id", type=int)
-        low_stock_threshold = request.args.get("threshold", 10, type=int)
+        low_stock_threshold = request.args.get("threshold", type=int)  # Changed from default 10 to None
         item_search = request.args.get("item_search")
         limit = request.args.get("limit", 100, type=int)
         page = request.args.get("page", 1, type=int)
@@ -305,14 +313,15 @@ def inventory():
             limit=limit,
             offset=offset,
         )
-        logger.info(
-            f"   ✅ Retrieved {len(inventory_result.get('inventory', []))} inventory items out of {inventory_result.get('total_count', 0)} total"
-        )
+        
+        # Log inventory result details
+        logger.info(f"   Inventory result type: {type(inventory_result)}")
+        logger.info(f"   Inventory result keys: {list(inventory_result.keys()) if isinstance(inventory_result, dict) else 'Not a dict'}")
+        logger.info(f"   ✅ Retrieved {len(inventory_result.get('inventory', []))} inventory items out of {inventory_result.get('total_count', 0)} total")
 
         # Get warehouses for filter dropdown
         logger.info("   Fetching warehouses for dropdown...")
         warehouses = analytics_service.get_warehouses()
-        # print('======== warehouses 11===========', warehouses)
         logger.info(f"   ✅ Retrieved {len(warehouses)} warehouses")
 
         # Calculate pagination info
@@ -348,7 +357,7 @@ def inventory():
         logger.error(f"❌ Inventory page error: {str(e)}")
         flash(f"Error loading inventory: {str(e)}", "error")
         return render_template(
-            "inventory.html", inventory=[], warehouses=[], pagination={}
+            "inventory.html", inventory=[], warehouses=[], pagination={}, filters={}
         )
 
 

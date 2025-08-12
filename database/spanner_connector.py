@@ -360,7 +360,7 @@ class SpannerConnector(BaseDatabaseConnector):
                        CASE WHEN no.no_o_id IS NOT NULL THEN 'New' ELSE 'Delivered' END as status
                 FROM order_table o
                 JOIN customer c ON c.c_w_id = o.o_w_id AND c.c_d_id = o.o_d_id AND c.c_id = o.o_c_id
-                LEFT JOIN new_order no ON no.no_w_id = o.o_w_id AND no.no_d_id = o.o_d_id AND no.no_o_id = o.o_id
+                LEFT JOIN new_order no ON no.no_w_id = o.o_w_id AND no.no_d_id =  o.o_d_id AND no.no_o_id = o.o_id
             """
             
             # Build WHERE clause based on filters
@@ -587,6 +587,254 @@ class SpannerConnector(BaseDatabaseConnector):
                 
         except Exception as e:
             logger.error(f"Failed to get order status: {str(e)}")
+            return {"success": False, "error": str(e)}
+
+    def get_inventory_paginated(
+        self,
+        warehouse_id: Optional[int] = None,
+        low_stock_threshold: Optional[int] = None,
+        item_search: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        """Get inventory data with pagination and filtering"""
+        try:
+            # Build the base query
+            query = """
+                SELECT s.s_i_id, s.s_w_id, s.s_quantity, s.s_ytd, s.s_order_cnt, s.s_remote_cnt,
+                       i.i_name, i.i_price, i.i_data,
+                       w.w_name
+                FROM stock s
+                JOIN item i ON i.i_id = s.s_i_id
+                JOIN warehouse w ON w.w_id = s.s_w_id
+            """
+            
+            # Build WHERE clause based on filters
+            where_conditions = []
+            params = {}
+            param_types = {}
+            param_counter = 1
+            
+            if warehouse_id is not None:
+                where_conditions.append(f"s.s_w_id = ${param_counter}")
+                params[f"p{param_counter}"] = warehouse_id
+                param_types[f"p{param_counter}"] = spanner.param_types.INT64
+                param_counter += 1
+            
+            # Only apply low stock threshold if explicitly provided (not None)
+            if low_stock_threshold is not None:
+                where_conditions.append(f"s.s_quantity < ${param_counter}")
+                params[f"p{param_counter}"] = low_stock_threshold
+                param_types[f"p{param_counter}"] = spanner.param_types.INT64
+                param_counter += 1
+            
+            if item_search:
+                where_conditions.append(f"(LOWER(i.i_name) LIKE LOWER(${param_counter}) OR LOWER(i.i_data) LIKE LOWER(${param_counter}))")
+                search_param = f"%{item_search}%"
+                params[f"p{param_counter}"] = search_param
+                param_types[f"p{param_counter}"] = spanner.param_types.STRING
+                param_counter += 1
+            
+            if where_conditions:
+                query += " WHERE " + " AND ".join(where_conditions)
+            
+            # Get total count for pagination
+            count_query = f"SELECT COUNT(*) as count FROM ({query}) as subquery"
+            
+            # Execute count query with current params
+            with self.database.snapshot() as snapshot:
+                count_results = snapshot.execute_sql(count_query, params=params, param_types=param_types)
+                total_count = 0
+                for row in count_results:
+                    total_count = int(row[0]) if row[0] is not None else 0
+                    break
+            
+            # Add ORDER BY and LIMIT
+            query += f" ORDER BY s.s_quantity ASC LIMIT ${param_counter} OFFSET ${param_counter + 1}"
+            params[f"p{param_counter}"] = limit
+            param_types[f"p{param_counter}"] = spanner.param_types.INT64
+            params[f"p{param_counter + 1}"] = offset
+            param_types[f"p{param_counter + 1}"] = spanner.param_types.INT64
+            
+            # Execute the main query
+            with self.database.snapshot() as snapshot:
+                results = snapshot.execute_sql(query, params=params, param_types=param_types)
+                
+                # Convert results to list of dictionaries
+                inventory = []
+                if hasattr(results, 'fields') and results.fields:
+                    column_names = [field.name for field in results.fields]
+                else:
+                    # Fallback column names for inventory
+                    column_names = ['s_i_id', 's_w_id', 's_quantity', 's_ytd', 's_order_cnt', 's_remote_cnt', 
+                                  'i_name', 'i_price', 'i_data', 'w_name']
+                
+                for row in results:
+                    row_dict = {}
+                    for i, value in enumerate(row):
+                        col_name = column_names[i] if i < len(column_names) else f"col_{i}"
+                        if hasattr(value, 'isoformat'):  # datetime
+                            row_dict[col_name] = value.isoformat()
+                        elif value is None:
+                            row_dict[col_name] = None
+                        else:
+                            row_dict[col_name] = value
+                    inventory.append(row_dict)
+            
+            # Calculate pagination info
+            has_next = (offset + limit) < total_count
+            has_prev = offset > 0
+            
+            return {
+                "inventory": inventory,
+                "total_count": total_count,
+                "limit": limit,
+                "offset": offset,
+                "has_next": has_next,
+                "has_prev": has_prev,
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to get inventory paginated: {str(e)}")
+            return {
+                "inventory": [],
+                "total_count": 0,
+                "limit": limit,
+                "offset": offset,
+                "has_next": False,
+                "has_prev": False,
+            }
+
+    def get_inventory(
+        self,
+        warehouse_id: Optional[int] = None,
+        low_stock_threshold: Optional[int] = None,
+        item_search: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """Get basic inventory data with optional filters (no pagination)"""
+        try:
+            # Build the base query
+            query = """
+                SELECT s.s_i_id, s.s_w_id, s.s_quantity, s.s_ytd, s.s_order_cnt, s.s_remote_cnt,
+                       i.i_name, i.i_price, i.i_data,
+                       w.w_name
+                FROM stock s
+                JOIN item i ON i.i_id = s.s_i_id
+                JOIN warehouse w ON w.w_id = s.s_w_id
+            """
+            
+            # Build WHERE clause based on filters
+            where_conditions = []
+            params = {}
+            param_types = {}
+            param_counter = 1
+            
+            if warehouse_id is not None:
+                where_conditions.append(f"s.s_w_id = ${param_counter}")
+                params[f"p{param_counter}"] = warehouse_id
+                param_types[f"p{param_counter}"] = spanner.param_types.INT64
+                param_counter += 1
+            
+            # Only apply low stock threshold if explicitly provided (not None)
+            if low_stock_threshold is not None:
+                where_conditions.append(f"s.s_quantity < ${param_counter}")
+                params[f"p{param_counter}"] = low_stock_threshold
+                param_types[f"p{param_counter}"] = spanner.param_types.INT64
+                param_counter += 1
+            
+            if item_search:
+                where_conditions.append(f"(LOWER(i.i_name) LIKE LOWER(${param_counter}) OR i.i_data LIKE LOWER(${param_counter}))")
+                search_param = f"%{item_search}%"
+                params[f"p{param_counter}"] = search_param
+                param_types[f"p{param_counter}"] = spanner.param_types.STRING
+                param_counter += 1
+            
+            if where_conditions:
+                query += " WHERE " + " AND ".join(where_conditions)
+            
+            # Add ORDER BY and LIMIT
+            query += f" ORDER BY s.s_quantity ASC LIMIT ${param_counter}"
+            params[f"p{param_counter}"] = limit
+            param_types[f"p{param_counter}"] = spanner.param_types.INT64
+            
+            # Execute the query
+            with self.database.snapshot() as snapshot:
+                results = snapshot.execute_sql(query, params=params, param_types=param_types)
+                
+                # Convert results to list of dictionaries
+                inventory = []
+                if hasattr(results, 'fields') and results.fields:
+                    column_names = [field.name for field in results.fields]
+                else:
+                    # Fallback column names for inventory
+                    column_names = ['s_i_id', 's_w_id', 's_quantity', 's_ytd', 's_order_cnt', 's_remote_cnt', 
+                                  'i_name', 'i_price', 'i_data', 'w_name']
+                
+                for row in results:
+                    row_dict = {}
+                    for i, value in enumerate(row):
+                        col_name = column_names[i] if i < len(column_names) else f"col_{i}"
+                        if hasattr(value, 'isoformat'):  # datetime
+                            row_dict[col_name] = value.isoformat()
+                        elif value is None:
+                            row_dict[col_name] = None
+                        else:
+                            row_dict[col_name] = value
+                    inventory.append(row_dict)
+                
+                return inventory
+                
+        except Exception as e:
+            logger.error(f"Failed to get inventory: {str(e)}")
+            return []
+
+    def get_stock_level(
+        self, warehouse_id: int, district_id: int, threshold: int
+    ) -> Dict[str, Any]:
+        """Execute TPC-C Stock Level transaction"""
+        try:
+            # Query to get stock level information
+            query = """
+                SELECT COUNT(*) as low_stock_count
+                FROM stock s
+                JOIN order_line ol ON ol.ol_i_id = s.s_i_id 
+                    AND ol.ol_w_id = s.s_w_id
+                JOIN order_table o ON o.o_id = ol.ol_o_id 
+                    AND o.o_w_id = ol.ol_w_id 
+                    AND o.o_d_id = ol.ol_d_id
+                WHERE s.s_w_id = $1 
+                    AND s.s_d_id = $2 
+                    AND o.o_id >= (SELECT d_next_o_id - 20 FROM district WHERE d_w_id = $1 AND d_id = $2)
+                    AND o.o_id < (SELECT d_next_o_id FROM district WHERE d_w_id = $1 AND d_id = $2)
+                    AND s.s_quantity < $3
+            """
+            
+            params = {"p1": warehouse_id, "p2": district_id, "p3": threshold}
+            param_types = {
+                "p1": spanner.param_types.INT64,
+                "p2": spanner.param_types.INT64,
+                "p3": spanner.param_types.INT64
+            }
+            
+            with self.database.snapshot() as snapshot:
+                results = snapshot.execute_sql(query, params=params, param_types=param_types)
+                
+                low_stock_count = 0
+                for row in results:
+                    low_stock_count = int(row[0]) if row[0] is not None else 0
+                    break
+                
+                return {
+                    "success": True,
+                    "warehouse_id": warehouse_id,
+                    "district_id": district_id,
+                    "threshold": threshold,
+                    "low_stock_count": low_stock_count
+                }
+                
+        except Exception as e:
+            logger.error(f"Failed to get stock level: {str(e)}")
             return {"success": False, "error": str(e)}
 
     def get_table_counts(self) -> Dict[str, int]:
