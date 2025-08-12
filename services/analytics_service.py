@@ -89,24 +89,9 @@ class AnalyticsService:
             }
 
         try:
-            # Test connection first
-            connection_test = self.connector.test_connection()
-            if not connection_test:
-                logger.error("❌ Database connection failed")
-                print("❌ Database connection failed")
-                default_metrics = self._get_default_metrics()
-                print("📊 Using default metrics (connection failed):")
-                print("-" * 40)
-                for key, value in default_metrics.items():
-                    print(f"   {key}: {value}")
-                print("-" * 40)
-                return {
-                    "error": "Database connection failed",
-                    "metrics": default_metrics,
-                }
-            
-            logger.info("✅ Database connection successful")
-            print("✅ Database connection successful")
+            # Connection is already established, no need to test again
+            logger.info("✅ Using established database connection")
+            print("✅ Using established database connection")
 
             # Try to get basic metrics using simple queries
             metrics = {}
@@ -385,8 +370,7 @@ class AnalyticsService:
             return []
 
         try:
-            if not self.connector.test_connection():
-                return []
+            # Connection is already established, no need to test again
 
             query = """
                 SELECT w_id, w_name, w_city, w_state
@@ -426,8 +410,7 @@ class AnalyticsService:
             return {"error": "No database connector available", "inventory": []}
 
         try:
-            if not self.connector.test_connection():
-                return {"error": "Database connection failed", "inventory": []}
+            # Connection is already established, no need to test again
 
             query = """
                 SELECT s.s_i_id, i.i_name, s.s_w_id, s.s_quantity, i.i_price

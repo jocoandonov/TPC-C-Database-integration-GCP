@@ -91,20 +91,6 @@ class SpannerConnector(BaseDatabaseConnector):
                 
                 if results:
                     print("✅ Spanner connection test successful")
-                    
-                    # Now test warehouse table count
-                    print("🔍 Testing warehouse table access...")
-                    try:
-                        warehouse_results = snapshot.execute_sql("SELECT COUNT(*) as warehouse_count FROM warehouse")
-                        if warehouse_results:
-                            for row in warehouse_results:
-                                warehouse_count = row[0] if row else 0
-                                print(f"📊 Warehouse table count: {warehouse_count}")
-                        else:
-                            print("❌ Warehouse query returned no results")
-                    except Exception as warehouse_e:
-                        print(f"❌ Warehouse table query failed: {str(warehouse_e)}")
-                    
                     return True
                 else:
                     print("❌ Basic test query failed")
@@ -183,15 +169,18 @@ class SpannerConnector(BaseDatabaseConnector):
                     converted_query, spanner_params, spanner_param_types = self._convert_query_to_spanner_format(query, params)
                     query = converted_query
             
-            # Execute the query
+            # Execute the query with a fresh snapshot
+            print(f"🔍 Executing query: {query[:100]}...")
             with self.database.snapshot() as snapshot:
                 if spanner_params:
+                    print(f"   With params: {spanner_params}")
                     results_iter = snapshot.execute_sql(query, params=spanner_params, param_types=spanner_param_types)
                 else:
                     results_iter = snapshot.execute_sql(query)
                 
                 # Convert iterator to list so we can safely inspect and re-use it
                 rows_data = list(results_iter)
+                print(f"   ✅ Query executed successfully, returned {len(rows_data)} rows")
                 
                 # Column names - use Spanner's fields metadata when available
                 if hasattr(results_iter, 'fields') and results_iter.fields:
@@ -245,6 +234,7 @@ class SpannerConnector(BaseDatabaseConnector):
             logger.error(f"Query execution failed: {str(e)}")
             print(f"❌ Query execution failed: {str(e)}")
             print(f"   Query: {query}")
+            print(f"   Error type: {type(e).__name__}")
             return []
 
     def get_provider_name(self) -> str:
