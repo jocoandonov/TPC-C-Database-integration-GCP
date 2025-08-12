@@ -167,8 +167,8 @@ class OrderService:
             try:
                 # Insert into order_table - handle o_carrier_id as NULL explicitly
                 order_insert_query = """
-                    INSERT INTO order_table (o_id, o_d_id, o_w_id, o_c_id, o_entry_d, o_carrier_id, o_ol_cnt, o_all_local)
-                    VALUES (@order_id, @district_id, @warehouse_id, @customer_id, CURRENT_TIMESTAMP, NULL, @ol_cnt, @all_local)
+                    INSERT INTO order_table (o_id, o_d_id, o_w_id, o_c_id, o_entry_d, o_carrier_id, o_ol_cnt, o_all_local, region_created)
+                    VALUES (@order_id, @district_id, @warehouse_id, @customer_id, CURRENT_TIMESTAMP, NULL, @ol_cnt, @all_local, @region_created)
                 """
                 if not self.db.execute_dml(order_insert_query, {
                     "order_id": order_id,
@@ -176,7 +176,8 @@ class OrderService:
                     "warehouse_id": warehouse_id,
                     "customer_id": customer_id,
                     "ol_cnt": len(items),
-                    "all_local": 1 if all(item.get("supply_warehouse_id", warehouse_id) == warehouse_id for item in items) else 0
+                    "all_local": 1 if all(item.get("supply_warehouse_id", warehouse_id) == warehouse_id for item in items) else 0,
+                    "region_created": self.region_name
                 }):
                     return {"success": False, "error": "Failed to insert order"}
                 

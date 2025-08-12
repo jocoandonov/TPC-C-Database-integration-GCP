@@ -784,50 +784,34 @@ def api_test_multi_region_orders_by_region():
     try:
         logger.info("🌍 Multi-region Orders by Region API called")
 
-                # Get orders grouped by region (simulating multi-region data)
-        current_region = os.environ.get("REGION_NAME", "default")
-        
-        # Simulate multi-region data by creating region statistics
-        # In a real implementation, this would come from actual region_created data
-        region_stats = []
-        
-        # Current region data
-        current_region_query = """
+        # Get orders grouped by actual region_created data (REAL DATA ONLY)
+        region_stats_query = """
             SELECT 
+                region_created as region_name,
                 COUNT(*) as order_count,
                 MIN(o_entry_d) as first_order,
                 MAX(o_entry_d) as last_order
             FROM order_table
+            WHERE region_created IS NOT NULL AND region_created != ''
+            GROUP BY region_created
+            ORDER BY region_created
         """
         
-        current_results = db_connector.execute_query(current_region_query)
-        if current_results:
-            current_data = current_results[0]
-            region_stats.append({
-                "region_name": current_region,
-                "order_count": current_data["order_count"],
-                "first_order": current_data["first_order"],
-                "last_order": current_data["last_order"]
-            })
+        region_results = db_connector.execute_query(region_stats_query)
         
-        # Simulate other regions (for testing purposes)
-        # In production, this would be real data from different regions
-        simulated_regions = ["us-east1", "us-west1", "europe-west1"]
-        for region in simulated_regions:
-            if region != current_region:
-                # Simulate some data for other regions
-                simulated_count = max(1, (current_data["order_count"] if current_results else 100) // (len(simulated_regions) + 1))
-                region_stats.append({
-                    "region_name": region,
-                    "order_count": simulated_count,
-                    "first_order": current_data["first_order"] if current_results else None,
-                    "last_order": current_data["last_order"] if current_results else None
-                })
-
-        # region_stats is already built above
+        # Build region statistics from REAL region data only
+        region_stats = []
+        
+        for region_data in region_results:
+            region_stats.append({
+                "region_name": region_data["region_name"],
+                "order_count": region_data["order_count"],
+                "first_order": region_data["first_order"],
+                "last_order": region_data["last_order"]
+            })
 
         logger.info(
-            f"   ✅ Retrieved region statistics for {len(region_stats)} regions"
+            f"   ✅ Retrieved region statistics for {len(region_stats)} regions with real data"
         )
 
         return jsonify(
@@ -836,6 +820,8 @@ def api_test_multi_region_orders_by_region():
                 "region_stats": region_stats,
                 "current_region": os.environ.get("REGION_NAME", "default"),
                 "provider": db_connector.get_provider_name(),
+                "total_regions": len(region_stats),
+                "total_orders": sum(stat["order_count"] for stat in region_stats)
             }
         )
 
@@ -852,8 +838,7 @@ def api_test_multi_region_recent_orders():
 
         limit = request.args.get("limit", 20, type=int)
 
-        # Get recent orders (region_created column doesn't exist yet)
-        # Note: Changed 'no' alias to 'new_ord' to avoid Spanner reserved keyword conflict
+        # Get recent orders with REAL region_created data
         query = """
             SELECT 
                 o.o_id,
@@ -861,6 +846,7 @@ def api_test_multi_region_recent_orders():
                 o.o_d_id,
                 o.o_c_id,
                 o.o_entry_d,
+                o.region_created,
                 c.c_first,
                 c.c_middle,
                 c.c_last,
@@ -868,34 +854,35 @@ def api_test_multi_region_recent_orders():
             FROM order_table o
             JOIN customer c ON c.c_w_id = o.o_w_id AND c.c_d_id = o.o_d_id AND c.c_id = o.o_c_id
             LEFT JOIN new_order new_ord ON new_ord.no_w_id = o.o_w_id AND new_ord.no_d_id = o.o_d_id AND new_ord.no_o_id = o.o_id
+            WHERE o.region_created IS NOT NULL AND o.region_created != ''
             ORDER BY o.o_entry_d DESC
             LIMIT @limit
         """
 
         results = db_connector.execute_query(query, {"limit": limit})
 
-        # Format results
+        # Format results with REAL region data
         orders = []
-        current_region = os.environ.get("REGION_NAME", "default")
         
         for row in results:
+            # Use the actual region_created value from database
+            region_name = row.get("region_created", "Unknown")
+            
             orders.append(
                 {
                     "order_id": row["o_id"],
                     "warehouse_id": row["o_w_id"],
                     "district_id": row["o_d_id"],
                     "customer_id": row["o_c_id"],
-                    "order_date": row["o_entry_d"]
-                    if row["o_entry_d"]
-                    else None,
+                    "order_date": row["o_entry_d"] if row["o_entry_d"] else None,
                     "customer_name": f"{row['c_first']} {row['c_middle']} {row['c_last']}",
                     "status": row["status"],
-                    "region": current_region,  # Add region information
+                    "region": region_name,  # REAL region data
                 }
             )
 
         logger.info(
-            f"   ✅ Retrieved {len(orders)} recent orders with region information"
+            f"   ✅ Retrieved {len(orders)} recent orders with REAL region data"
         )
 
         return jsonify(

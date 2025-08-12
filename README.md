@@ -47,7 +47,7 @@ Once your local implementation works, prepare for cloud deployment:
 
 ### 1. Add Region Tracking Column
 ```sql
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS region_created VARCHAR(50);
+ALTER TABLE order_table ADD COLUMN IF NOT EXISTS region_created VARCHAR(50);
 ```
 
 ### 2. Why This Is Needed

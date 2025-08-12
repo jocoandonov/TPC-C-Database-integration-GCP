@@ -269,7 +269,18 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function displayRegionStats(regionStats, currentRegion) {
         if (regionStats.length === 0) {
-            document.getElementById('regionStatsContainer').innerHTML = '<div class="alert alert-info">No orders found in any region</div>';
+            document.getElementById('regionStatsContainer').innerHTML = `
+                <div class="alert alert-info">
+                    <h6><i class="fas fa-info-circle"></i> No Region Data Available Yet</h6>
+                    <p class="mb-2">No orders have been created with region tracking yet.</p>
+                    <p class="mb-0">
+                        <strong>To see real region data:</strong><br>
+                        1. Create new orders using the "Create Test Order" button above<br>
+                        2. Each new order will be tagged with your current region: <span class="badge badge-primary">${currentRegion}</span><br>
+                        3. Refresh this page to see the updated statistics
+                    </p>
+                </div>
+            `;
             return;
         }
 
@@ -300,12 +311,39 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         
         html += '</div>';
+        
+        // Add summary information
+        const totalOrders = regionStats.reduce((sum, s) => sum + s.order_count, 0);
+        
+        html += `
+            <div class="alert alert-success mt-3">
+                <h6><i class="fas fa-check-circle"></i> Real Region Data Summary</h6>
+                <p class="mb-1">
+                    <strong>Total Regions:</strong> ${regionStats.length} regions with actual order data
+                </p>
+                <p class="mb-0">
+                    <strong>Total Orders:</strong> ${totalOrders.toLocaleString()} orders tracked by region
+                </p>
+            </div>
+        `;
+        
         document.getElementById('regionStatsContainer').innerHTML = html;
     }
 
     function displayRecentOrders(orders, currentRegion) {
         if (orders.length === 0) {
-            document.getElementById('recentOrdersContainer').innerHTML = '<div class="alert alert-info">No recent orders found</div>';
+            document.getElementById('recentOrdersContainer').innerHTML = `
+                <div class="alert alert-info">
+                    <h6><i class="fas fa-info-circle"></i> No Recent Orders with Region Data</h6>
+                    <p class="mb-2">No orders have been created with region tracking yet.</p>
+                    <p class="mb-0">
+                        <strong>To see real region data:</strong><br>
+                        1. Create new orders using the "Create Test Order" button above<br>
+                        2. Each new order will be tagged with your current region: <span class="badge badge-primary">${currentRegion}</span><br>
+                        3. Refresh this page to see the updated data
+                    </p>
+                </div>
+            `;
             return;
         }
 
