@@ -923,6 +923,79 @@ def api_health():
         ), 500
 
 
+@app.route("/api/debug/district-structure")
+def api_debug_district_structure():
+    """Debug endpoint to check district table structure"""
+    try:
+        logger.info("🔍 Debug: Checking district table structure...")
+        
+        # Check district table columns
+        column_check_query = """
+            SELECT column_name, data_type, is_nullable
+            FROM information_schema.columns 
+            WHERE table_name = 'district'
+            ORDER BY ordinal_position
+        """
+        column_check = db_connector.execute_query(column_check_query)
+        
+        # Check sample district data
+        sample_district_query = """
+            SELECT * FROM district LIMIT 3
+        """
+        sample_district = db_connector.execute_query(sample_district_query)
+        
+        # Check if d_next_o_id column exists and has data
+        next_o_id_check_query = """
+            SELECT COUNT(*) as count, 
+                   MIN(d_next_o_id) as min_next_o_id,
+                   MAX(d_next_o_id) as max_next_o_id
+            FROM district 
+            WHERE d_next_o_id IS NOT NULL
+        """
+        next_o_id_check = db_connector.execute_query(next_o_id_check_query)
+        
+        debug_info = {
+            "district_columns": column_check,
+            "sample_district_data": sample_district,
+            "next_o_id_info": next_o_id_check[0] if next_o_id_check else None,
+            "provider": db_connector.get_provider_name()
+        }
+        
+        logger.info(f"   ✅ District structure debug info retrieved")
+        return jsonify(debug_info)
+        
+    except Exception as e:
+        logger.error(f"Debug district structure error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/test/payment-test")
+def api_test_payment():
+    """Test endpoint to verify payment functionality"""
+    try:
+        logger.info("🧪 Testing payment functionality...")
+        
+        # Test with a simple payment
+        test_result = payment_service.execute_payment(
+            warehouse_id=1,
+            district_id=1,
+            customer_id=1,
+            amount=10.0
+        )
+        
+        logger.info(f"   Payment test result: {test_result}")
+        
+        return jsonify({
+            "success": True,
+            "test_result": test_result,
+            "message": "Payment test completed - check logs for details"
+        })
+        
+    except Exception as e:
+        logger.error(f"Payment test error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
 # Error handlers
 
 

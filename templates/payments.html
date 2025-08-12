@@ -457,6 +457,20 @@ try {
     console.error('❌ Error logging other template variables:', error);
 }
 
+// Helper function to close payment modal
+function closePaymentModal() {
+    const modal = bootstrap.Modal.getInstance(document.getElementById('newPaymentModal'));
+    if (modal) {
+        modal.hide();
+    }
+}
+
+// Helper function to reset payment form
+function resetPaymentForm() {
+    document.getElementById('newPaymentForm').reset();
+    document.getElementById('paymentResult').innerHTML = '';
+}
+
 // Additional debugging info
 console.log('🔍 Template rendering completed');
 console.log('🔍 Check for any JavaScript errors above');
@@ -486,36 +500,78 @@ function submitPayment() {
         amount: amount
     };
     
-    // Show loading
+    // Show loading state
     const submitBtn = event.target;
     const originalText = submitBtn.innerHTML;
     submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Processing...';
     submitBtn.disabled = true;
     
+    // Clear previous results and show loading
+    resultDiv.innerHTML = '';
     showLoading(resultDiv);
+    
+    console.log('🔄 Processing payment:', paymentData);
     
     makeRequest('/api/payment', 'POST', paymentData)
         .then(response => {
+            console.log('✅ Payment response:', response);
+            
             if (response.success) {
+                // Show success message
                 resultDiv.innerHTML = `
                     <div class="alert alert-success">
-                        <h6><i class="bi bi-check-circle"></i> Payment Processed Successfully</h6>
+                        <h6><i class="bi bi-check-circle"></i> Payment Processed Successfully!</h6>
                         <p><strong>Customer:</strong> ${response.customer_name}</p>
-                        <p><strong>Amount:</strong> $${response.amount.toFixed(2)}</p>
+                        <p><strong>Warehouse:</strong> ${response.warehouse_name}</p>
+                        <p><strong>District:</strong> ${response.district_name}</p>
+                        <p><strong>Amount:</strong> $${response.payment_amount.toFixed(2)}</p>
+                        <p><strong>Old Balance:</strong> $${response.old_balance.toFixed(2)}</p>
                         <p><strong>New Balance:</strong> $${response.new_balance.toFixed(2)}</p>
-                        <p><strong>Timestamp:</strong> ${new Date(response.timestamp).toLocaleString()}</p>
+                        <p><strong>YTD Payment:</strong> $${response.ytd_payment.toFixed(2)}</p>
+                        <p><strong>Payment Count:</strong> ${response.payment_count}</p>
+                        <p><strong>Message:</strong> ${response.message}</p>
+                        <hr>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <small class="text-muted">Modal will auto-close in 5 seconds</small>
+                            <button type="button" class="btn btn-sm btn-success" onclick="closePaymentModal(); location.reload();">
+                                <i class="bi bi-check"></i> Close & Reload
+                            </button>
+                        </div>
                     </div>
                 `;
                 
-                // Auto-close modal after 3 seconds
+                // Reset form
+                resetPaymentForm();
+                
+                // Auto-close modal after 5 seconds and reload page
                 setTimeout(() => {
+                    closePaymentModal();
+                    // Reload page to show updated data
                     location.reload();
-                }, 3000);
+                }, 5000);
+                
             } else {
-                showError(resultDiv, response.error || 'Payment processing failed');
+                // Show error message
+                resultDiv.innerHTML = `
+                    <div class="alert alert-danger">
+                        <h6><i class="bi bi-exclamation-triangle"></i> Payment Failed</h6>
+                        <p><strong>Error:</strong> ${response.error || 'Unknown error occurred'}</p>
+                    </div>
+                `;
             }
         })
+        .catch(error => {
+            console.error('❌ Payment error:', error);
+            // Show error message
+            resultDiv.innerHTML = `
+                <div class="alert alert-danger">
+                    <h6><i class="bi bi-exclamation-triangle"></i> Payment Failed</h6>
+                    <p><strong>Error:</strong> ${error.message || 'Network or server error occurred'}</p>
+                </div>
+            `;
+        })
         .finally(() => {
+            // Reset button state
             submitBtn.innerHTML = originalText;
             submitBtn.disabled = false;
         });

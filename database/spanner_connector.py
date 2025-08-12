@@ -929,47 +929,113 @@ class SpannerConnector(BaseDatabaseConnector):
     ) -> Dict[str, Any]:
         """Execute TPC-C Stock Level transaction"""
         try:
-            # Query to get stock level information
-            query = """
-                SELECT COUNT(*) as low_stock_count
-                FROM stock s
-                JOIN order_line ol ON ol.ol_i_id = s.s_i_id 
-                    AND ol.ol_w_id = s.s_w_id
-                JOIN order_table o ON o.o_id = ol.ol_o_id 
-                    AND o.o_w_id = ol.ol_w_id 
-                    AND o.o_d_id = ol.ol_d_id
-                WHERE s.s_w_id = $1 
-                    AND s.s_d_id = $2 
-                    AND o.o_id >= (SELECT d_next_o_id - 20 FROM district WHERE d_w_id = $1 AND d_id = $2)
-                    AND o.o_id < (SELECT d_next_o_id FROM district WHERE d_w_id = $1 AND d_id = $2)
-                    AND s.s_quantity < $3
-            """
+            logger.info(f"🔍 Stock Level Check: w_id={warehouse_id}, d_id={district_id}, threshold={threshold}")
             
-            params = {"p1": warehouse_id, "p2": district_id, "p3": threshold}
-            param_types = {
-                "p1": spanner.param_types.INT64,
-                "p2": spanner.param_types.INT64,
-                "p3": spanner.param_types.INT64
-            }
+            # First, check if district table has the required columns
+            try:
+                district_check_query = """
+                    SELECT d_next_o_id 
+                    FROM district 
+                    WHERE d_w_id = @warehouse_id AND d_id = @district_id
+                    LIMIT 1
+                """
+                
+                district_check_params = {"warehouse_id": warehouse_id, "district_id": district_id}
+                district_check = self.execute_query(district_check_query, district_check_params)
+                
+                if not district_check:
+                    logger.warning(f"   ⚠️ District {district_id} not found in warehouse {warehouse_id}")
+                    # Fall back to simple warehouse-wide check
+                    return self._get_simple_stock_level(warehouse_id, threshold)
+                
+                logger.info(f"   ✅ District check passed, proceeding with full TPC-C query...")
+                
+            except Exception as district_check_error:
+                logger.warning(f"   ⚠️ District table check failed: {str(district_check_error)}")
+                logger.info(f"   Falling back to simplified stock level check...")
+                return self._get_simple_stock_level(warehouse_id, threshold)
             
-            with self.database.snapshot() as snapshot:
-                results = snapshot.execute_sql(query, params=params, param_types=param_types)
+            # Try the full TPC-C Stock Level transaction
+            try:
+                query = """
+                    SELECT COUNT(DISTINCT s.s_i_id) as low_stock_count
+                    FROM stock s
+                    JOIN order_line ol ON ol.ol_i_id = s.s_i_id 
+                        AND ol.ol_w_id = s.s_w_id
+                    JOIN order_table o ON o.o_id = ol.ol_o_id 
+                        AND o.o_w_id = ol.ol_w_id 
+                        AND o.o_d_id = ol.ol_d_id
+                    WHERE s.s_w_id = @warehouse_id 
+                        AND o.o_d_id = @district_id
+                        AND o.o_id >= (SELECT d_next_o_id - 20 FROM district WHERE d_w_id = @warehouse_id AND d_id = @district_id)
+                        AND o.o_id < (SELECT d_next_o_id FROM district WHERE d_w_id = @warehouse_id AND d_id = @district_id)
+                        AND s.s_quantity < @threshold
+                """
+                
+                params = {"warehouse_id": warehouse_id, "district_id": district_id, "threshold": threshold}
+                
+                logger.info(f"   Executing full TPC-C stock level query...")
+                results = self.execute_query(query, params)
+                logger.info(f"   Full query results: {results}")
                 
                 low_stock_count = 0
-                for row in results:
-                    low_stock_count = int(row[0]) if row[0] is not None else 0
-                    break
+                if results:
+                    low_stock_count = int(results[0]["low_stock_count"]) if results[0]["low_stock_count"] is not None else 0
+                
+                logger.info(f"   ✅ Full TPC-C stock level check completed: {low_stock_count} items below threshold")
                 
                 return {
                     "success": True,
                     "warehouse_id": warehouse_id,
                     "district_id": district_id,
                     "threshold": threshold,
-                    "low_stock_count": low_stock_count
+                    "low_stock_count": low_stock_count,
+                    "method": "full_tpc_c",
+                    "message": f"Found {low_stock_count} items with stock below threshold {threshold} in last 20 orders for district {district_id} in warehouse {warehouse_id}"
                 }
                 
+            except Exception as full_query_error:
+                logger.warning(f"   ⚠️ Full TPC-C query failed: {str(full_query_error)}")
+                logger.info(f"   Falling back to simplified stock level check...")
+                return self._get_simple_stock_level(warehouse_id, threshold)
+                
         except Exception as e:
-            logger.error(f"Failed to get stock level: {str(e)}")
+            logger.error(f"❌ Failed to get stock level: {str(e)}")
+            return {"success": False, "error": str(e)}
+    
+    def _get_simple_stock_level(self, warehouse_id: int, threshold: int) -> Dict[str, Any]:
+        """Fallback method for simple stock level check"""
+        try:
+            fallback_query = """
+                SELECT COUNT(*) as low_stock_count
+                FROM stock s
+                WHERE s.s_w_id = @warehouse_id 
+                    AND s.s_quantity < @threshold
+            """
+            
+            fallback_params = {"warehouse_id": warehouse_id, "threshold": threshold}
+            
+            fallback_results = self.execute_query(fallback_query, fallback_params)
+            logger.info(f"   Fallback query results: {fallback_results}")
+            
+            low_stock_count = 0
+            if fallback_results:
+                low_stock_count = int(fallback_results[0]["low_stock_count"]) if fallback_results[0]["low_stock_count"] is not None else 0
+            
+            logger.info(f"   ✅ Fallback stock level check completed: {low_stock_count} items below threshold")
+            
+            return {
+                "success": True,
+                "warehouse_id": warehouse_id,
+                "district_id": None,
+                "threshold": threshold,
+                "low_stock_count": low_stock_count,
+                "method": "fallback_simple",
+                "message": f"Found {low_stock_count} items with stock below threshold {threshold} in warehouse {warehouse_id} (simplified check)"
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Fallback stock level check also failed: {str(e)}")
             return {"success": False, "error": str(e)}
 
     def execute_delivery(self, warehouse_id: int, carrier_id: int) -> Dict[str, Any]:
@@ -1075,7 +1141,7 @@ class SpannerConnector(BaseDatabaseConnector):
     def execute_payment(self, warehouse_id: int, district_id: int, customer_id: int, amount: float) -> Dict[str, Any]:
         """Execute TPC-C Payment transaction"""
         try:
-            logger.info(f"Starting Payment transaction: w_id={warehouse_id}, d_id={district_id}, c_id={customer_id}, amount={amount}")
+            logger.info(f"🔄 Starting Payment transaction: w_id={warehouse_id}, d_id={district_id}, c_id={customer_id}, amount={amount}")
             
             # Get customer information
             customer_query = """
@@ -1090,9 +1156,12 @@ class SpannerConnector(BaseDatabaseConnector):
             })
             
             if not customer_result:
+                logger.error(f"   ❌ Customer not found: w_id={warehouse_id}, d_id={district_id}, c_id={customer_id}")
                 return {"success": False, "error": "Customer not found"}
             
             customer = customer_result[0]  # execute_query returns a list, so get first item
+            logger.info(f"   ✅ Customer found: {customer['c_first']} {customer['c_middle']} {customer['c_last']}")
+            logger.info(f"   📊 Current balance: {customer['c_balance']}, YTD payment: {customer['c_ytd_payment']}")
             
             # Get warehouse and district information
             warehouse_query = """
@@ -1102,9 +1171,11 @@ class SpannerConnector(BaseDatabaseConnector):
             warehouse_result = self.execute_query(warehouse_query, {"warehouse_id": warehouse_id})
             
             if not warehouse_result:
+                logger.error(f"   ❌ Warehouse not found: w_id={warehouse_id}")
                 return {"success": False, "error": "Warehouse not found"}
             
             warehouse = warehouse_result[0]  # execute_query returns a list, so get first item
+            logger.info(f"   ✅ Warehouse found: {warehouse['w_name']}")
             
             district_query = """
                 SELECT d_name, d_street_1, d_street_2, d_city, d_state, d_zip, d_ytd
@@ -1116,21 +1187,122 @@ class SpannerConnector(BaseDatabaseConnector):
             })
             
             if not district_result:
+                logger.error(f"   ❌ District not found: w_id={warehouse_id}, d_id={district_id}")
                 return {"success": False, "error": "District not found"}
             
             district = district_result[0]  # execute_query returns a list, so get first item
+            logger.info(f"   ✅ District found: {district['d_name']}")
             
-            # Calculate new customer balance and payment stats
+            # Calculate new values
             new_balance = customer["c_balance"] - amount
             new_ytd_payment = customer["c_ytd_payment"] + amount
             new_payment_cnt = customer["c_payment_cnt"] + 1
+            new_warehouse_ytd = warehouse["w_ytd"] + amount
+            new_district_ytd = district["d_ytd"] + amount
             
-            # For now, we'll simulate the payment since we can't do transactions
-            # In a real implementation, this would update multiple tables in a transaction
+            logger.info(f"   💰 Processing payment of {amount:.2f}")
+            logger.info(f"   📈 New values calculated:")
+            logger.info(f"      Customer balance: {customer['c_balance']:.2f} → {new_balance:.2f}")
+            logger.info(f"      Customer YTD: {customer['c_ytd_payment']:.2f} → {new_ytd_payment:.2f}")
+            logger.info(f"      Warehouse YTD: {warehouse['w_ytd']:.2f} → {new_warehouse_ytd:.2f}")
+            logger.info(f"      District YTD: {district['d_ytd']:.2f} → {new_district_ytd:.2f}")
             
-            logger.info(f"Payment {amount:.2f} would be processed for customer {customer_id}")
-            logger.info(f"New balance would be: {new_balance:.2f}")
-            logger.info(f"New YTD payment would be: {new_ytd_payment:.2f}")
+            # Execute actual database updates using DML
+            logger.info(f"   🔄 Starting database updates...")
+            
+            # Update customer
+            customer_update_query = """
+                UPDATE customer 
+                SET c_balance = @new_balance, 
+                    c_ytd_payment = @new_ytd_payment, 
+                    c_payment_cnt = @new_payment_cnt
+                WHERE c_w_id = @warehouse_id AND c_d_id = @district_id AND c_id = @customer_id
+            """
+            
+            customer_update_params = {
+                "new_balance": new_balance,
+                "new_ytd_payment": new_ytd_payment,
+                "new_payment_cnt": new_payment_cnt,
+                "warehouse_id": warehouse_id,
+                "district_id": district_id,
+                "customer_id": customer_id
+            }
+            
+            logger.info(f"   🔄 Updating customer...")
+            if not self.execute_dml(customer_update_query, customer_update_params):
+                logger.error(f"   ❌ Failed to update customer")
+                return {"success": False, "error": "Failed to update customer"}
+            logger.info(f"   ✅ Customer updated successfully")
+            
+            # Update warehouse
+            warehouse_update_query = """
+                UPDATE warehouse 
+                SET w_ytd = @new_warehouse_ytd
+                WHERE w_id = @warehouse_id
+            """
+            
+            warehouse_update_params = {
+                "new_warehouse_ytd": new_warehouse_ytd,
+                "warehouse_id": warehouse_id
+            }
+            
+            logger.info(f"   🔄 Updating warehouse...")
+            if not self.execute_dml(warehouse_update_query, warehouse_update_params):
+                logger.error(f"   ❌ Failed to update warehouse")
+                return {"success": False, "error": "Failed to update warehouse"}
+            logger.info(f"   ✅ Warehouse updated successfully")
+            
+            # Update district
+            district_update_query = """
+                UPDATE district 
+                SET d_ytd = @new_district_ytd
+                WHERE d_w_id = @warehouse_id AND d_id = @district_id
+            """
+            
+            district_update_params = {
+                "new_district_ytd": new_district_ytd,
+                "warehouse_id": warehouse_id,
+                "district_id": district_id
+            }
+            
+            logger.info(f"   🔄 Updating district...")
+            if not self.execute_dml(district_update_query, district_update_params):
+                logger.error(f"   ❌ Failed to update district")
+                return {"success": False, "error": "Failed to update district"}
+            logger.info(f"   ✅ District updated successfully")
+            
+            # Insert payment history record (optional - don't fail if this doesn't work)
+            try:
+                payment_history_query = """
+                    INSERT INTO history (h_c_id, h_c_d_id, h_c_w_id, h_d_id, h_w_id, h_date, h_amount, h_data)
+                    VALUES (@customer_id, @district_id, @warehouse_id, @district_id, @warehouse_id, CURRENT_TIMESTAMP, @amount, @payment_data)
+                """
+                
+                payment_data = f"{warehouse['w_name']} {district['d_name']}"
+                payment_history_params = {
+                    "customer_id": customer_id,
+                    "district_id": district_id,
+                    "warehouse_id": warehouse_id,
+                    "amount": amount,
+                    "payment_data": payment_data
+                }
+                
+                logger.info(f"   🔄 Recording payment history...")
+                if self.execute_dml(payment_history_query, payment_history_params):
+                    logger.info("   ✅ Payment history recorded")
+                else:
+                    logger.warning("   ⚠️ Failed to insert payment history, but payment was processed")
+                    
+            except Exception as history_error:
+                logger.warning(f"   ⚠️ Payment history insert failed: {str(history_error)}, but payment was processed")
+                # Don't fail the entire transaction if history insert fails
+            
+            logger.info(f"   ✅ Payment transaction completed successfully: {amount:.2f} processed")
+            logger.info(f"   📊 Final values:")
+            logger.info(f"      Customer balance: {new_balance:.2f}")
+            logger.info(f"      Customer YTD payment: {new_ytd_payment:.2f}")
+            logger.info(f"      Warehouse YTD: {new_warehouse_ytd:.2f}")
+            logger.info(f"      District YTD: {new_district_ytd:.2f}")
             
             return {
                 "success": True,
@@ -1142,11 +1314,11 @@ class SpannerConnector(BaseDatabaseConnector):
                 "new_balance": new_balance,
                 "ytd_payment": new_ytd_payment,
                 "payment_count": new_payment_cnt,
-                "message": "Payment processed successfully (simulated - no actual database changes)"
+                "message": "Payment processed successfully with actual database updates"
             }
             
         except Exception as e:
-            logger.error(f"Payment transaction error: {str(e)}")
+            logger.error(f"❌ Payment transaction error: {str(e)}")
             return {"success": False, "error": str(e)}
 
     def get_table_counts(self) -> Dict[str, int]:
