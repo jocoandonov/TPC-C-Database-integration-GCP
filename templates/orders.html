@@ -344,6 +344,43 @@
 
 {% block scripts %}
 <script>
+// Debug logging for template variables
+console.log('🔍 Orders Template Debug Info:');
+
+// Safely log orders data
+try {
+    const ordersData = {{ orders|tojson|safe }};
+    console.log('Orders:', ordersData);
+    
+    if (ordersData === null) {
+        console.error('❌ Orders is null!');
+    } else if (ordersData === undefined) {
+        console.error('❌ Orders is undefined!');
+    } else if (Array.isArray(ordersData)) {
+        console.log(`✅ Orders is an array with ${ordersData.length} items`);
+        if (ordersData.length > 0) {
+            console.log('First order sample:', ordersData[0]);
+        }
+    } else {
+        console.warn('⚠️ Orders is not an array:', typeof ordersData, ordersData);
+    }
+} catch (error) {
+    console.error('❌ Error logging orders data:', error);
+}
+
+// Safely log other template variables
+try {
+    console.log('Warehouses:', {{ warehouses|tojson|safe }});
+    console.log('Pagination:', {{ pagination|tojson|safe }});
+    console.log('Filters:', {{ filters|tojson|safe }});
+} catch (error) {
+    console.error('❌ Error logging other template variables:', error);
+}
+
+// Additional debugging info
+console.log('🔍 Template rendering completed');
+console.log('🔍 Check for any JavaScript errors above');
+
 function addOrderItem() {
     const itemsContainer = document.getElementById('orderItems');
     const newItem = document.createElement('div');

@@ -92,42 +92,6 @@ with app.app_context():
     initialize_services()
 
 
-def test_table_connectivity():
-    """Test connectivity to all TPC-C tables"""
-    print("📊 Testing TPC-C table connectivity...")
-    print("-" * 40)
-    
-    tables = [
-        "warehouse",
-        "district", 
-        "customer",
-        "order_table",
-        "order_line",
-        "item",
-        "stock"
-    ]
-    
-    table_status = {}
-    
-    for table in tables:
-        try:
-            print(f"🔍 Testing table: {table}")
-            result = db_connector.execute_query(f"SELECT COUNT(*) as count FROM {table}")
-            count = result[0]["count"] if result else 0
-            table_status[table] = {"connected": True, "count": count}
-            print(f"   ✅ {table}: {count} records")
-        except Exception as e:
-            table_status[table] = {"connected": False, "error": str(e)}
-            print(f"   ❌ {table}: Connection failed - {str(e)}")
-    
-    print("-" * 40)
-    connected_tables = sum(1 for status in table_status.values() if status["connected"])
-    total_tables = len(tables)
-    print(f"📈 Table connectivity: {connected_tables}/{total_tables} tables connected")
-    
-    return table_status
-
-
 @app.route("/")
 def dashboard():
     """Main dashboard showing key metrics"""
@@ -143,31 +107,6 @@ def dashboard():
         print(f"   📅 Access Time: {current_time}")
         print(f"   🌐 User Agent: {request.headers.get('User-Agent', 'Unknown')[:50]}...")
 
-        # Test table connectivity
-        print("🔍 Testing table connectivity...")
-        print("=" * 60)
-        print("🔗 TABLE CONNECTIVITY TEST")
-        print("=" * 60)
-        table_status = test_table_connectivity()
-        
-        # Display table connectivity summary
-        if table_status:
-            connected_tables = sum(1 for status in table_status.values() if status.get("connected", False))
-            total_tables = len(table_status)
-            print(f"📊 TABLE CONNECTIVITY SUMMARY: {connected_tables}/{total_tables} tables connected")
-            
-            # Show which tables are working
-            working_tables = [table for table, status in table_status.items() if status.get("connected", False)]
-            if working_tables:
-                print(f"✅ Working tables: {', '.join(working_tables)}")
-            
-            # Show which tables failed
-            failed_tables = [table for table, status in table_status.items() if not status.get("connected", False)]
-            if failed_tables:
-                print(f"❌ Failed tables: {', '.join(failed_tables)}")
-                
-        print("=" * 60)
-        
         # Get dashboard metrics
         logger.info("   Fetching dashboard metrics...")
         print("   Fetching dashboard metrics...")

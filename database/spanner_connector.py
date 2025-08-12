@@ -128,20 +128,18 @@ class SpannerConnector(BaseDatabaseConnector):
             # Execute the query
             with self.database.snapshot() as snapshot:
                 if params:
-                    results = snapshot.execute_sql(query, params=params)
+                    results_iter = snapshot.execute_sql(query, params=params)
                 else:
-                    results = snapshot.execute_sql(query)
+                    results_iter = snapshot.execute_sql(query)
                 
-                # Convert results to list of dictionaries
-                rows = []
+                # Convert iterator to list so we can safely inspect and re-use it
+                rows_data = list(results_iter)
                 
-                # Get column names from the results metadata
-                if hasattr(results, 'fields'):
-                    column_names = [field.name for field in results.fields]
+                # Column names - use Spanner's fields metadata when available
+                if hasattr(results_iter, 'fields') and results_iter.fields:
+                    column_names = [field.name for field in results_iter.fields]
                 else:
                     # Fallback: try to extract column names from the query
-                    # This is a simple approach - for complex queries you might need more sophisticated parsing
-                    column_names = []
                     query_upper = query.upper()
                     if 'SELECT' in query_upper:
                         # Extract column names from SELECT clause
@@ -162,32 +160,25 @@ class SpannerConnector(BaseDatabaseConnector):
                 
                 # If we still don't have column names, use generic ones
                 if not column_names:
-                    column_names = [f"col_{i}" for i in range(len(results[0]) if results else 0)]
-                
-                for row in results:
-                    row_dict = {}
-                    # For simple queries like COUNT(*), just use the value
-                    if len(row) == 1 and len(column_names) == 1:
-                        row_dict[column_names[0]] = row[0]
+                    # For COUNT(*) queries, use 'count' as the column name
+                    if 'COUNT(*)' in query.upper():
+                        column_names = ['count']
                     else:
-                        # For multi-column queries, use the actual column names
-                        for i, value in enumerate(row):
-                            if i < len(column_names):
-                                col_name = column_names[i]
-                                if hasattr(value, 'isoformat'):  # datetime
-                                    row_dict[col_name] = value.isoformat()
-                                elif value is None:
-                                    row_dict[col_name] = None
-                                else:
-                                    row_dict[col_name] = value
-                            else:
-                                # Fallback to generic name if we have more values than column names
-                                if hasattr(value, 'isoformat'):  # datetime
-                                    row_dict[f"col_{i}"] = value.isoformat()
-                                elif value is None:
-                                    row_dict[f"col_{i}"] = None
-                                else:
-                                    row_dict[f"col_{i}"] = value
+                        # Use the first row to determine column count
+                        column_names = [f"col_{i}" for i in range(len(rows_data[0]) if rows_data else 0)]
+                
+                # Build dict rows
+                rows = []
+                for row in rows_data:
+                    row_dict = {}
+                    for i, value in enumerate(row):
+                        col_name = column_names[i] if i < len(column_names) else f"col_{i}"
+                        if hasattr(value, 'isoformat'):  # datetime
+                            row_dict[col_name] = value.isoformat()
+                        elif value is None:
+                            row_dict[col_name] = None
+                        else:
+                            row_dict[col_name] = value
                     rows.append(row_dict)
                 
                 return rows
@@ -286,48 +277,23 @@ class SpannerConnector(BaseDatabaseConnector):
             print("❌ No database connection available for table counts")
             return table_counts
         
-        # First, let's discover what tables actually exist
-        print("🔍 Discovering available tables...")
-        try:
-            with self.database.snapshot() as snapshot:
-                # Query to list all tables
-                results = snapshot.execute_sql("""
-                    SELECT table_name 
-                    FROM information_schema.tables 
-                    WHERE table_schema = 'public'
-                    ORDER BY table_name
-                """)
-                
-                available_tables = []
-                if results:
-                    for row in results:
-                        available_tables.append(row[0])
-                
-                print(f"📋 Available tables: {', '.join(available_tables)}")
-                
-        except Exception as e:
-            print(f"❌ Could not discover tables: {str(e)}")
-            # Fallback to common TPC-C table names
-            available_tables = [
-                "warehouse", "district", "customer", "order_table", 
-                "order_line", "item", "stock"
-            ]
+        # Use the working execute_query method instead of direct Spanner calls
+        tables = [
+            "warehouse", "district", "customer", "order_table", 
+            "order_line", "item", "stock"
+        ]
         
-        for table in available_tables:
+        for table in tables:
             try:
-                # Create a new snapshot for each table
-                with self.database.snapshot() as snapshot:
-                    query = f"SELECT COUNT(*) as count FROM {table}"
-                    results = snapshot.execute_sql(query)
-                    
-                    if results:
-                        for row in results:
-                            count = row[0] if row else 0
-                            table_counts[table] = count
-                    else:
-                        table_counts[table] = 0
+                print(f"🔍 Testing table====================: {table}")
+                # Use execute_query which handles Spanner results properly
+                result = self.execute_query(f"SELECT COUNT(*) as count FROM {table}")
+                count = result[0]["count"] if result and len(result) > 0 else 0
+                table_counts[table] = count
+                print(f"   ✅ {table}: {count} records")
                         
             except Exception as e:
+                print(f"   ❌ Error counting {table}: {str(e)}")
                 table_counts[table] = 0
         
         return table_counts
