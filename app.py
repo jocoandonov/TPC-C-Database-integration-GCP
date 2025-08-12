@@ -367,6 +367,14 @@ def payments():
     try:
         logger.info("💳 Payments page accessed")
 
+        # Check if payment service is available
+        if not payment_service:
+            logger.error("❌ Payment service not initialized")
+            flash("Payment service not available", "error")
+            return render_template(
+                "payments.html", payments=[], warehouses=[], pagination={}, filters={}
+            )
+
         # Get filter parameters
         warehouse_id = request.args.get("warehouse_id", type=int)
         district_id = request.args.get("district_id", type=int)
@@ -390,6 +398,10 @@ def payments():
             limit=limit,
             offset=offset,
         )
+        
+        # Log payment result details
+        logger.info(f"   Payment result type: {type(payments_result)}")
+        logger.info(f"   Payment result keys: {list(payments_result.keys()) if isinstance(payments_result, dict) else 'Not a dict'}")
         logger.info(
             f"   ✅ Retrieved {len(payments_result.get('payments', []))} payment records out of {payments_result.get('total_count', 0)} total"
         )

@@ -176,8 +176,14 @@
                             <div>{{ payment.c_first }} {{ payment.c_middle }} {{ payment.c_last }}</div>
                             <small class="text-muted">ID: {{ payment.h_c_id }}</small>
                         </td>
-                        <td>{{ payment.h_c_w_id }}</td>
-                        <td>{{ payment.h_c_d_id }}</td>
+                        <td>
+                            <div>{{ payment.warehouse_name or 'Warehouse ' + payment.h_w_id|string }}</div>
+                            <small class="text-muted">ID: {{ payment.h_w_id }}</small>
+                        </td>
+                        <td>
+                            <div>{{ payment.district_name or 'District ' + payment.h_d_id|string }}</div>
+                            <small class="text-muted">ID: {{ payment.h_d_id }}</small>
+                        </td>
                         <td>
                             {% if payment.h_amount > 1000 %}
                             <span class="badge bg-warning">${{ "%.2f"|format(payment.h_amount) }}</span>
@@ -192,7 +198,7 @@
                         </td>
                         <td>
                             <button class="btn btn-sm btn-outline-primary" 
-                                    onclick="viewCustomerPayments({{ payment.h_c_w_id }}, {{ payment.h_c_d_id }}, {{ payment.h_c_id }})">
+                                    onclick="viewCustomerPayments({{ payment.h_w_id }}, {{ payment.h_d_id }}, {{ payment.h_c_id }})">
                                 <i class="bi bi-eye"></i> View Customer
                             </button>
                         </td>
@@ -201,11 +207,26 @@
                 </tbody>
             </table>
         </div>
-        {% else %}
+        {% elif payments is none %}
+        <div class="text-center py-4">
+            <i class="bi bi-exclamation-triangle display-1 text-warning"></i>
+            <h4 class="text-warning">Payments data is null</h4>
+            <p class="text-muted">There was an issue loading payments data. Please check the console for errors.</p>
+            <button class="btn btn-outline-primary" onclick="location.reload()">
+                <i class="bi bi-arrow-clockwise"></i> Reload Page
+            </button>
+        </div>
+        {% elif payments is defined and payments|length == 0 %}
         <div class="text-center py-4">
             <i class="bi bi-credit-card display-1 text-muted"></i>
             <h4 class="text-muted">No payments found</h4>
             <p class="text-muted">Try adjusting your filters or process a new payment.</p>
+        </div>
+        {% else %}
+        <div class="text-center py-4">
+            <i class="bi bi-question-circle display-1 text-muted"></i>
+            <h4 class="text-muted">Payments data unavailable</h4>
+            <p class="text-muted">Unable to determine payments status. Please check the console for errors.</p>
         </div>
         {% endif %}
         
@@ -401,6 +422,46 @@
 
 {% block scripts %}
 <script>
+// Debug logging for template variables
+console.log('🔍 Payments Template Debug Info:');
+console.log('🔍 ========================================');
+// Safely log payments data
+try {
+    const paymentsData = {{ payments|tojson|safe }};
+    console.log('💳 Payments Data:', paymentsData);
+    console.log('💳 Payments Type:', typeof paymentsData);
+    console.log('💳 Payments Length:', Array.isArray(paymentsData) ? paymentsData.length : 'Not an array');
+    if (paymentsData === null) {
+        console.error('❌ Payments is null!');
+    } else if (paymentsData === undefined) {
+        console.error('❌ Payments is undefined!');
+    } else if (Array.isArray(paymentsData)) {
+        console.log(`✅ Payments is an array with ${paymentsData.length} items`);
+        if (paymentsData.length > 0) {
+            console.log('💳 First payment sample:', paymentsData[0]);
+            console.log('💳 Payment keys:', Object.keys(paymentsData[0]));
+        }
+    } else {
+        console.warn('⚠️ Payments is not an array:', typeof paymentsData, paymentsData);
+    }
+} catch (error) {
+    console.error('❌ Error logging payments data:', error);
+}
+
+// Safely log other template variables
+try {
+    console.log('🏢 Warehouses:', {{ warehouses|tojson|safe }});
+    console.log('📄 Pagination:', {{ pagination|tojson|safe }});
+    console.log('🔍 Filters:', {{ filters|tojson|safe }});
+} catch (error) {
+    console.error('❌ Error logging other template variables:', error);
+}
+
+// Additional debugging info
+console.log('🔍 Template rendering completed');
+console.log('🔍 Check for any JavaScript errors above');
+console.log('🔍 ========================================');
+
 function submitPayment() {
     const warehouseId = parseInt(document.getElementById('payment_warehouse_id').value);
     const districtId = parseInt(document.getElementById('payment_district_id').value);
