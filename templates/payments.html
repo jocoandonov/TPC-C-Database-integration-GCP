@@ -528,69 +528,81 @@ function viewCustomerPayments(warehouseId, districtId, customerId) {
     showLoading(content);
     modal.show();
     
-    // Filter current payments for this customer
-    const customerPayments = Array.from(document.querySelectorAll('tbody tr')).filter(row => {
-        const rowWarehouse = parseInt(row.cells[2].textContent);
-        const rowDistrict = parseInt(row.cells[3].textContent);
-        const rowCustomerId = parseInt(row.cells[1].querySelector('small').textContent.replace('ID: ', ''));
-        
-        return rowWarehouse === warehouseId && rowDistrict === districtId && rowCustomerId === customerId;
-    });
-    
-    if (customerPayments.length > 0) {
-        const firstPayment = customerPayments[0];
-        const customerName = firstPayment.cells[1].querySelector('div').textContent;
-        
-        let totalAmount = 0;
-        const paymentRows = customerPayments.map(row => {
-            const amount = parseFloat(row.cells[4].textContent.replace(/[$,]/g, ''));
-            totalAmount += amount;
+    // Call API to get customer payment history
+    fetch(`/api/customer-payments/${warehouseId}/${districtId}/${customerId}`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('Customer payment history API response:', data);
             
-            return `
-                <tr>
-                    <td>${row.cells[0].innerHTML}</td>
-                    <td>${row.cells[4].innerHTML}</td>
-                    <td>${row.cells[5].textContent}</td>
-                </tr>
-            `;
-        }).join('');
-        
-        content.innerHTML = `
-            <div class="row mb-3">
-                <div class="col-md-6">
-                    <h6>Customer Information</h6>
-                    <p><strong>Name:</strong> ${customerName}</p>
-                    <p><strong>Customer ID:</strong> ${customerId}</p>
-                    <p><strong>Warehouse:</strong> ${warehouseId}</p>
-                    <p><strong>District:</strong> ${districtId}</p>
-                </div>
-                <div class="col-md-6">
-                    <h6>Payment Summary</h6>
-                    <p><strong>Total Payments:</strong> ${customerPayments.length}</p>
-                    <p><strong>Total Amount:</strong> $${totalAmount.toFixed(2)}</p>
-                    <p><strong>Average Payment:</strong> $${(totalAmount / customerPayments.length).toFixed(2)}</p>
-                </div>
-            </div>
-            
-            <h6>Payment History</h6>
-            <div class="table-responsive">
-                <table class="table table-sm">
-                    <thead>
+            if (data.payments && data.payments.length > 0) {
+                const firstPayment = data.payments[0];
+                const customerName = `${firstPayment.c_first || ''} ${firstPayment.c_middle || ''} ${firstPayment.c_last || ''}`.trim();
+                
+                let totalAmount = 0;
+                const paymentRows = data.payments.map(payment => {
+                    const amount = parseFloat(payment.h_amount || 0);
+                    totalAmount += amount;
+                    
+                    return `
                         <tr>
-                            <th>Date</th>
-                            <th>Amount</th>
-                            <th>Description</th>
+                            <td>${payment.h_date || 'N/A'}</td>
+                            <td>$${amount.toFixed(2)}</td>
+                            <td>Payment from ${payment.warehouse_name || 'Unknown'} - ${payment.district_name || 'Unknown'}</td>
                         </tr>
-                    </thead>
-                    <tbody>
-                        ${paymentRows}
-                    </tbody>
-                </table>
-            </div>
-        `;
-    } else {
-        content.innerHTML = '<div class="alert alert-info">No payment history found for this customer.</div>';
-    }
+                    `;
+                }).join('');
+                
+                content.innerHTML = `
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <h6>Customer Information</h6>
+                            <p><strong>Name:</strong> ${customerName}</p>
+                            <p><strong>Customer ID:</strong> ${customerId}</p>
+                            <p><strong>Warehouse:</strong> ${warehouseId}</p>
+                            <p><strong>District:</strong> ${districtId}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>Payment Summary</h6>
+                            <p><strong>Total Payments:</strong> ${data.payments.length}</p>
+                            <p><strong>Total Amount:</strong> $${totalAmount.toFixed(2)}</p>
+                            <p><strong>Average Payment:</strong> $${(totalAmount / data.payments.length).toFixed(2)}</p>
+                        </div>
+                    </div>
+                    
+                    <h6>Payment History</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Amount</th>
+                                    <th>Description</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${paymentRows}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            } else {
+                content.innerHTML = '<div class="alert alert-info">No payment history found for this customer.</div>';
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching customer payment history:', error);
+            content.innerHTML = `
+                <div class="alert alert-danger">
+                    <h6><i class="bi bi-exclamation-triangle"></i> Error Loading Payment History</h6>
+                    <p>Failed to load customer payment history: ${error.message}</p>
+                </p>
+            `;
+        });
 }
 
 function executeDelivery() {

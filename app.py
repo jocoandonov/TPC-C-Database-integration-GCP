@@ -568,6 +568,29 @@ def api_payment():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/customer-payments/<int:warehouse_id>/<int:district_id>/<int:customer_id>")
+def api_customer_payments(warehouse_id: int, district_id: int, customer_id: int):
+    """Get payment history for a specific customer"""
+    try:
+        logger.info(f"💳 Customer payment history API called for w_id={warehouse_id}, d_id={district_id}, c_id={customer_id}")
+        
+        # Get customer payment history
+        result = payment_service.get_payment_history_paginated(
+            warehouse_id=warehouse_id,
+            district_id=district_id,
+            customer_id=customer_id,
+            limit=100,  # Get more payments for the customer
+            offset=0
+        )
+        
+        logger.info(f"   ✅ Retrieved {len(result.get('payments', []))} payment records for customer")
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Customer payment history API error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/order-status/<int:warehouse_id>/<int:district_id>/<int:customer_id>")
 def api_order_status(warehouse_id: int, district_id: int, customer_id: int):
     """Get order status (TPC-C Order Status Transaction)"""
