@@ -77,3 +77,25 @@ See `materials/shared/webapp-overview.md` for technical details about the applic
 - Test your connection with the `/api/health` endpoint
 
 Good luck! 🚀
+
+Deploy: 
+
+
+gcloud run deploy tpcc-webapp-west --source . --platform managed --region us-west1 --allow-unauthenticated --port 8080 --memory 1Gi --cpu 1 --max-instances 10 --set-env-vars="REGION_NAME=us-west1,GOOGLE_CLOUD_PROJECT=ux360-15,SPANNER_INSTANCE_ID=ecommerce-instance,SPANNER_DATABASE_ID=inventorydb" --service-account=ux360-15@appspot.gserviceaccount.com
+
+==================================
+
+gcloud run deploy tpcc-webapp-east --source . --platform managed --region us-east1 --allow-unauthenticated --port 8080 --memory 1Gi --cpu 1 --max-instances 10 --set-env-vars="REGION_NAME=us-east1,GOOGLE_CLOUD_PROJECT=ux360-15,SPANNER_INSTANCE_ID=ecommerce-instance,SPANNER_DATABASE_ID=inventorydb" --service-account=ux360-15@appspot.gserviceaccount.com
+
+
+
+https://tpcc-webapp-west-191839058591.us-west1.run.app
+
+
+
+=========================
+
+gcloud auth login
+gcloud config set project ux360-15
+
+======================
