@@ -1,5 +1,5 @@
 # TPC-C Database Integration
-
+![Screenshot](./screenshot.png)
 ## Your Task
 
 Implement a database connector to make this TPC-C web application display real data from your assigned database provider: **Google Cloud Spanner**.
